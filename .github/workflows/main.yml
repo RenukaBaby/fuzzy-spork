@@ -1,0 +1,54 @@
+name: Build Release APK
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Unzip project
+        run: unzip 123.zip
+
+      - name: Fix gradlew (CRLF → Unix)
+        run: |
+          sed -i 's/\r$//' ads-maker-file/gradlew
+          chmod +x ads-maker-file/gradlew
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept licenses
+        run: yes | sdkmanager --licenses
+
+      - name: Install SDK components
+        run: |
+          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+
+      - name: Build Release APK
+        run: |
+          cd ads-maker-file
+          ./gradlew assembleRelease
+
+      - name: Find APK
+        run: |
+          find ads-maker-file -name "*.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: |
+            ads-maker-file/app/build/outputs/apk/release/**/*.apk
