@@ -32,24 +32,7 @@ jobs:
           echo "✅ Syntax OK"
 
   # ──────────────────────────────────────────────────────────────
-  #  RUN BOT
-  # ──────────────────────────────────────────────────────────────
-  run-bot:
-    name: 🚀 Run Bot
-    runs-on: ubuntu-latest
-    needs: lint
-    timeout-minutes: 350
-
-    steps:
-      - name: 📥 Checkout
-        uses: actions/checkout@v4
-
-      - name: 🐍 Setup Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
+  #  RUN BO
       - name: 🛠️ System Dependencies
         run: |
           sudo apt-get update -qq
