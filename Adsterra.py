@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║        ADSTERRA AUTOMATION BOT - GOD LEVEL EDITION              ║
-║     Realistic Test Data Generator + Full Signup Automation       ║
+║     ADSTERRA BETA PUBLISHER BOT - REAL FIELD SELECTORS          ║
+║     Handles: Cloudflare Turnstile + Real Form Automation        ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -11,7 +11,6 @@ import random
 import logging
 import sys
 import re
-import string
 from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass, field
@@ -19,39 +18,33 @@ from dataclasses import dataclass, field
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    ConversationHandler,
-    MessageHandler,
-    filters,
+    Application, CommandHandler, CallbackQueryHandler,
+    ContextTypes, ConversationHandler, MessageHandler, filters,
 )
 
 # ================================================================
-#                        LOGGING SETUP
+#                        LOGGING
 # ================================================================
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    datefmt="%H:%M:%S",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("AdsterraBot")
 
 # ================================================================
-#                     HARD-CODED CONFIG
+#                        CONFIG
 # ================================================================
-TELEGRAM_BOT_TOKEN: str = "8766573450:AAGDkv16RZOKPb8jqEZTGVoO5SsjmYnK6zI"
-TELEGRAM_CHAT_ID:   str = "3797306274"
+TELEGRAM_BOT_TOKEN = "8766573450:AAGDkv16RZOKPb8jqEZTGVoO5SsjmYnK6zI"
+TELEGRAM_CHAT_ID   = "3797306274"
 
-ADSTERRA_LOGIN_URL:     str = "https://publishers.adsterra.com/login"
-ADSTERRA_SIGNUP_URL:    str = "https://publishers.adsterra.com/register"
-ADSTERRA_SMARTLINK_URL: str = "https://publishers.adsterra.com/smartlink"
-ADSTERRA_DASHBOARD_URL: str = "https://publishers.adsterra.com/dashboard"
+SIGNUP_URL    = "https://beta.publishers.adsterra.com/signup"
+LOGIN_URL     = "https://beta.publishers.adsterra.com/login"
+DASHBOARD_URL = "https://beta.publishers.adsterra.com/dashboard"
 
 # ================================================================
-#                   CONVERSATION STATES
+#                  CONVERSATION STATES
 # ================================================================
 (
     STATE_LOGIN_EMAIL,
@@ -62,818 +55,596 @@ ADSTERRA_DASHBOARD_URL: str = "https://publishers.adsterra.com/dashboard"
     STATE_LOGOUT_CONFIRM,
     STATE_MANUAL_NAME,
     STATE_MANUAL_EMAIL,
+    STATE_MANUAL_LOGIN,
     STATE_MANUAL_PASSWORD,
-    STATE_MANUAL_WEBSITE,
+    STATE_MANUAL_MESSENGER,
+    STATE_MANUAL_MESSENGER_ACCOUNT,
     STATE_MANUAL_COUNTRY,
-    STATE_MANUAL_TELEGRAM,
-) = range(12)
+    STATE_TURNSTILE_TOKEN,
+) = range(14)
 
 # ================================================================
-#                  REALISTIC TEST DATA BANK
+#                  TEST DATA BANK
 # ================================================================
-
-# ── First Names ───────────────────────────────────────────────
 FIRST_NAMES = [
     "James", "Oliver", "William", "Benjamin", "Lucas",
     "Henry", "Alexander", "Mason", "Ethan", "Daniel",
-    "Matthew", "Aiden", "Logan", "Jackson", "Sebastian",
     "Emma", "Sophia", "Isabella", "Mia", "Charlotte",
     "Amelia", "Harper", "Evelyn", "Abigail", "Emily",
-    "Elizabeth", "Sofia", "Avery", "Ella", "Scarlett",
-    "Liam", "Noah", "Owen", "Carter", "Wyatt",
-    "Julian", "Grayson", "Levi", "Isaac", "Lincoln",
-    "Hannah", "Lillian", "Addison", "Aubrey", "Ellie",
-    "Stella", "Natalie", "Zoe", "Leah", "Hazel",
-    "Ryan", "Nathan", "Aaron", "Charles", "Thomas",
-    "Christopher", "Andrew", "Joshua", "David", "Joseph",
 ]
 
-# ── Last Names ────────────────────────────────────────────────
 LAST_NAMES = [
     "Smith", "Johnson", "Williams", "Brown", "Jones",
-    "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
-    "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson",
-    "Thomas", "Taylor", "Moore", "Jackson", "Martin",
-    "Lee", "Perez", "Thompson", "White", "Harris",
-    "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
-    "Walker", "Young", "Allen", "King", "Wright",
-    "Scott", "Torres", "Nguyen", "Hill", "Flores",
-    "Green", "Adams", "Nelson", "Baker", "Hall",
-    "Rivera", "Campbell", "Mitchell", "Carter", "Roberts",
+    "Garcia", "Miller", "Davis", "Wilson", "Anderson",
+    "Taylor", "Moore", "Jackson", "Martin", "Lee",
+    "Thompson", "White", "Harris", "Clark", "Lewis",
 ]
 
-# ── Countries with realistic publisher data ───────────────────
 COUNTRIES = [
-    # Tier 1
-    {"name": "United States", "code": "US", "tld": "com", "tier": 1},
-    {"name": "United Kingdom", "code": "GB", "tld": "co.uk", "tier": 1},
-    {"name": "Canada",         "code": "CA", "tld": "ca",    "tier": 1},
-    {"name": "Australia",      "code": "AU", "tld": "com.au","tier": 1},
-    {"name": "Germany",        "code": "DE", "tld": "de",    "tier": 1},
-    {"name": "France",         "code": "FR", "tld": "fr",    "tier": 1},
-    {"name": "Netherlands",    "code": "NL", "tld": "nl",    "tier": 1},
-    {"name": "Sweden",         "code": "SE", "tld": "se",    "tier": 1},
-    # Tier 2
-    {"name": "Brazil",         "code": "BR", "tld": "com.br","tier": 2},
-    {"name": "Mexico",         "code": "MX", "tld": "com.mx","tier": 2},
-    {"name": "Spain",          "code": "ES", "tld": "es",    "tier": 2},
-    {"name": "Italy",          "code": "IT", "tld": "it",    "tier": 2},
-    {"name": "Poland",         "code": "PL", "tld": "pl",    "tier": 2},
-    {"name": "Turkey",         "code": "TR", "tld": "com.tr","tier": 2},
-    {"name": "Argentina",      "code": "AR", "tld": "com.ar","tier": 2},
-    # Tier 3
-    {"name": "India",          "code": "IN", "tld": "in",    "tier": 3},
-    {"name": "Indonesia",      "code": "ID", "tld": "co.id", "tier": 3},
-    {"name": "Nigeria",        "code": "NG", "tld": "com.ng","tier": 3},
-    {"name": "Pakistan",       "code": "PK", "tld": "pk",    "tier": 3},
-    {"name": "Bangladesh",     "code": "BD", "tld": "com.bd","tier": 3},
+    "United States", "United Kingdom", "Canada", "Australia",
+    "Germany", "France", "Netherlands", "Sweden", "Spain",
+    "Italy", "Poland", "Brazil", "Mexico", "India",
+    "Indonesia", "Pakistan", "Turkey", "Argentina",
 ]
 
-# ── Website niches ────────────────────────────────────────────
-WEBSITE_NICHES = [
-    # Entertainment
-    {"niche": "entertainment", "keywords": ["fun",    "viral",  "buzz",   "trend",  "daily"]},
-    {"niche": "news",          "keywords": ["news",   "today",  "global", "world",  "info"]},
-    {"niche": "tech",          "keywords": ["tech",   "digital","cyber",  "geek",   "byte"]},
-    {"niche": "gaming",        "keywords": ["game",   "play",   "gamer",  "quest",  "pixel"]},
-    {"niche": "finance",       "keywords": ["cash",   "money",  "earn",   "profit", "fund"]},
-    {"niche": "health",        "keywords": ["health", "fit",    "life",   "well",   "care"]},
-    {"niche": "travel",        "keywords": ["travel", "trip",   "journey","globe",  "tour"]},
-    {"niche": "lifestyle",     "keywords": ["style",  "living", "modern", "urban",  "chic"]},
-    {"niche": "sports",        "keywords": ["sport",  "score",  "league", "arena",  "champ"]},
-    {"niche": "education",     "keywords": ["learn",  "study",  "edu",    "skill",  "course"]},
+MESSENGERS = ["Telegram", "Skype", "WhatsApp"]
+
+TEST_DOMAINS = [
+    "gmail.com", "outlook.com", "yahoo.com",
+    "protonmail.com", "icloud.com", "mail.com",
 ]
-
-# ── Website structures ────────────────────────────────────────
-WEBSITE_STRUCTURES = [
-    "{keyword}{number}.{tld}",
-    "{keyword}-{word}.{tld}",
-    "{word}{keyword}.{tld}",
-    "the{keyword}hub.{tld}",
-    "{keyword}daily.{tld}",
-    "{keyword}zone.{tld}",
-    "my{keyword}site.{tld}",
-    "{keyword}world.{tld}",
-    "pro{keyword}.{tld}",
-    "{keyword}plus.{tld}",
-]
-
-FILLER_WORDS = [
-    "hub", "pro", "zone", "plus", "max",
-    "top", "best", "prime", "ultra", "mega",
-    "go", "my", "the", "get", "now",
-]
-
-# ── Secure password patterns ──────────────────────────────────
-SPECIAL_CHARS = ["!", "@", "#", "$", "%", "&", "*"]
-
-# ── Test email domains ────────────────────────────────────────
-TEST_EMAIL_DOMAINS = [
-    "testmail.com",
-    "example.com",
-    "mailtest.org",
-    "demomail.net",
-    "testuser.io",
-    "samplemail.com",
-    "fakemail.org",
-    "trialmail.net",
-    "devmail.com",
-    "qatest.org",
-]
-
-# ── Telegram username patterns ────────────────────────────────
-TG_PREFIXES  = ["user", "pub", "media", "web", "net", "pro", "dev", "ad", "site", "online"]
-TG_SUFFIXES  = ["101",  "pro", "hub",   "xyz", "media", "official", "real", "net", "web", "007"]
-
-# ── Skype username patterns ───────────────────────────────────
-SKYPE_PATTERNS = [
-    "live:{first}{last}{num}",
-    "{first}.{last}{num}",
-    "{first}{last}.{num}",
-    "{first}_{last}",
-    "publisher.{first}{num}",
-]
-
 
 # ================================================================
-#                  DATA GENERATOR CLASS
+#                  PROFILE GENERATOR
 # ================================================================
 @dataclass
-class PublisherProfile:
-    """Realistic Adsterra publisher test profile."""
-    full_name:       str = ""
-    first_name:      str = ""
-    last_name:       str = ""
-    email:           str = ""
-    password:        str = ""
-    country:         dict = field(default_factory=dict)
-    website_url:     str = ""
-    website_niche:   str = ""
-    telegram:        str = ""
-    skype:           str = ""
-    generated_at:    str = ""
-
-    def to_dict(self) -> dict:
-        return {
-            "full_name":     self.full_name,
-            "email":         self.email,
-            "password":      self.password,
-            "country":       self.country.get("name", ""),
-            "website_url":   self.website_url,
-            "website_niche": self.website_niche,
-            "telegram":      self.telegram,
-            "skype":         self.skype,
-            "generated_at":  self.generated_at,
-        }
+class Profile:
+    full_name:         str = ""
+    email:             str = ""
+    login:             str = ""
+    password:          str = ""
+    messenger:         str = "Telegram"
+    messenger_account: str = ""
+    country:           str = "United States"
 
 
-class AdsterraDataGenerator:
-    """
-    Generates 100% realistic Adsterra publisher
-    registration profiles for testing purposes.
-    """
-
-    # ── Name Generator ────────────────────────────────────────
+class Generator:
     @staticmethod
-    def generate_name() -> tuple[str, str, str]:
+    def make() -> Profile:
         first = random.choice(FIRST_NAMES)
         last  = random.choice(LAST_NAMES)
-        full  = f"{first} {last}"
-        return full, first, last
+        num   = random.randint(100, 9999)
 
-    # ── Password Generator ────────────────────────────────────
-    @staticmethod
-    def generate_password(length: int = 14) -> str:
-        """
-        Format: Word + Number + Special + Word + Number
-        Example: Sunrise47@Thunder92
-        """
-        words = [
-            "Alpha", "Beta", "Cyber", "Delta", "Echo",
-            "Falcon", "Ghost", "Hunter", "Iron", "Jade",
-            "Kilo", "Luna", "Maxim", "Nova", "Omega",
-            "Phoenix", "Quest", "Raven", "Storm", "Tiger",
-            "Ultra", "Viper", "Wolf", "Xenon", "Zephyr",
-            "Blaze", "Cloud", "Dawn", "Edge", "Frost",
-            "Glitch", "Haze", "Inferno", "Jolt", "Knight",
-        ]
-        word1   = random.choice(words)
-        word2   = random.choice(words)
-        num1    = random.randint(10, 99)
-        num2    = random.randint(10, 99)
-        special = random.choice(SPECIAL_CHARS)
-        return f"{word1}{num1}{special}{word2}{num2}"
+        full_name = f"{first} {last}"
+        email     = f"{first.lower()}.{last.lower()}{num}@{random.choice(TEST_DOMAINS)}"
+        login     = f"{first.lower()}{last.lower()}{num}"
 
-    # ── Email Generator ───────────────────────────────────────
-    @staticmethod
-    def generate_email(first: str, last: str) -> str:
-        domain  = random.choice(TEST_EMAIL_DOMAINS)
-        num     = random.randint(1, 999)
-        sep     = random.choice([".", "_", ""])
-        pattern = random.randint(1, 5)
-
-        if pattern == 1:
-            local = f"{first.lower()}{sep}{last.lower()}"
-        elif pattern == 2:
-            local = f"{first.lower()}{sep}{last.lower()}{num}"
-        elif pattern == 3:
-            local = f"{first.lower()[0]}{last.lower()}{num}"
-        elif pattern == 4:
-            local = f"{first.lower()}{num}"
-        else:
-            local = f"{first.lower()}{sep}{last.lower()[0]}{num}"
-
-        return f"{local}@{domain}"
-
-    # ── Website Generator ─────────────────────────────────────
-    @staticmethod
-    def generate_website(country: dict) -> tuple[str, str]:
-        niche_data = random.choice(WEBSITE_NICHES)
-        keyword    = random.choice(niche_data["keywords"])
-        structure  = random.choice(WEBSITE_STRUCTURES)
-        word       = random.choice(FILLER_WORDS)
-        number     = random.randint(1, 999)
-        tld        = random.choice([
-            country["tld"], "com", "net", "org", "io", "co"
-        ])
-
-        domain = (
-            structure
-            .replace("{keyword}", keyword)
-            .replace("{word}",    word)
-            .replace("{number}",  str(number))
-            .replace("{tld}",     tld)
+        words    = ["Phoenix", "Storm", "Tiger", "Eagle", "Wolf", "Falcon", "Knight", "Dragon"]
+        password = (
+            f"{random.choice(words)}"
+            f"{random.randint(10, 99)}"
+            f"{random.choice(['!', '@', '#', '$'])}"
+            f"{random.choice(words)}"
+            f"{random.randint(10, 99)}"
         )
 
-        # Clean up double dots or dashes
-        domain = domain.replace("..", ".").replace("--", "-")
-        url = f"https://www.{domain}"
-        return url, niche_data["niche"]
-
-    # ── Telegram Username Generator ───────────────────────────
-    @staticmethod
-    def generate_telegram(first: str, last: str) -> str:
-        num     = random.randint(1, 9999)
-        prefix  = random.choice(TG_PREFIXES)
-        suffix  = random.choice(TG_SUFFIXES)
-        pattern = random.randint(1, 5)
-
-        if pattern == 1:
-            return f"@{first.lower()}{last.lower()}{num}"
-        elif pattern == 2:
-            return f"@{prefix}_{first.lower()}{num}"
-        elif pattern == 3:
-            return f"@{first.lower()}_{suffix}"
-        elif pattern == 4:
-            return f"@{first.lower()}{last.lower()[0]}{num}"
-        else:
-            return f"@{prefix}{num}{suffix}"
-
-    # ── Skype Username Generator ──────────────────────────────
-    @staticmethod
-    def generate_skype(first: str, last: str) -> str:
-        num     = random.randint(1, 999)
-        pattern = random.choice(SKYPE_PATTERNS)
-        result  = (
-            pattern
-            .replace("{first}", first.lower())
-            .replace("{last}",  last.lower())
-            .replace("{num}",   str(num))
-        )
-        return result
-
-    # ── Full Profile Generator ────────────────────────────────
-    @classmethod
-    def generate_profile(cls) -> PublisherProfile:
-        full, first, last = cls.generate_name()
+        messenger         = random.choice(MESSENGERS)
+        messenger_account = f"@{first.lower()}{last.lower()[0]}{num}"
         country           = random.choice(COUNTRIES)
-        website, niche    = cls.generate_website(country)
 
-        return PublisherProfile(
-            full_name     = full,
-            first_name    = first,
-            last_name     = last,
-            email         = cls.generate_email(first, last),
-            password      = cls.generate_password(),
-            country       = country,
-            website_url   = website,
-            website_niche = niche,
-            telegram      = cls.generate_telegram(first, last),
-            skype         = cls.generate_skype(first, last),
-            generated_at  = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        return Profile(
+            full_name         = full_name,
+            email             = email,
+            login             = login,
+            password          = password,
+            messenger         = messenger,
+            messenger_account = messenger_account,
+            country           = country,
         )
-
-    # ── Batch Generator ───────────────────────────────────────
-    @classmethod
-    def generate_batch(cls, count: int = 5) -> list[PublisherProfile]:
-        profiles = []
-        emails   = set()
-        while len(profiles) < count:
-            p = cls.generate_profile()
-            if p.email not in emails:
-                emails.add(p.email)
-                profiles.append(p)
-        return profiles
-
 
 # ================================================================
-#                      SESSION STORE
+#                  SESSION STORE
 # ================================================================
 @dataclass
-class SessionStore:
-    email:            Optional[str] = None
-    password:         Optional[str] = None
-    full_name:        Optional[str] = None
-    website:          Optional[str] = None
-    country:          Optional[str] = None
-    telegram_user:    Optional[str] = None
-    skype_user:       Optional[str] = None
-    logged_in:        bool          = False
-    signup_done:      bool          = False
-    awaiting_confirm: bool          = False
-    current_profile:  Optional[PublisherProfile] = None
-    page:             Optional[Page]             = None
-    browser:          Optional[Browser]          = None
-    ctx:              Optional[BrowserContext]   = None
-    _playwright:      object                     = None
+class Session:
+    email:            Optional[str]     = None
+    password:         Optional[str]     = None
+    login:            Optional[str]     = None
+    profile:          Optional[Profile] = None
+    logged_in:        bool              = False
+    awaiting_confirm: bool              = False
+    page:             Optional[Page]    = None
+    browser:          Optional[Browser] = None
+    ctx:              Optional[BrowserContext] = None
+    _pw: object = None
 
     def __post_init__(self):
         self._lock = asyncio.Lock()
 
     @property
-    def has_credentials(self) -> bool:
-        return bool(self.email and self.password)
-
-    @property
     def browser_alive(self) -> bool:
         return self.browser is not None
 
-    async def full_logout(self) -> None:
+    async def reset(self):
         async with self._lock:
-            self.email            = None
-            self.password         = None
-            self.full_name        = None
-            self.website          = None
-            self.country          = None
-            self.telegram_user    = None
-            self.skype_user       = None
+            self.email = self.password = self.login = None
+            self.profile          = None
             self.logged_in        = False
-            self.signup_done      = False
             self.awaiting_confirm = False
-            self.current_profile  = None
-            await self._destroy_browser()
+            await self._close_browser()
 
-    async def _destroy_browser(self) -> None:
-        for obj, label in [
-            (self.page,    "page"),
-            (self.ctx,     "context"),
-            (self.browser, "browser"),
-        ]:
+    async def _close_browser(self):
+        for obj in [self.page, self.ctx, self.browser]:
             if obj:
                 try:
                     await obj.close()
-                    logger.info("✅ Closed %s", label)
-                except Exception as exc:
-                    logger.warning("⚠️ Error closing %s: %s", label, exc)
-
-        if self._playwright:
+                except Exception:
+                    pass
+        if self._pw:
             try:
-                await self._playwright.stop()
-            except Exception as exc:
-                logger.warning("⚠️ Playwright stop: %s", exc)
-
-        self.page        = None
-        self.ctx         = None
-        self.browser     = None
-        self._playwright = None
+                await self._pw.stop()
+            except Exception:
+                pass
+        self.page = self.ctx = self.browser = self._pw = None
 
 
-SESSION = SessionStore()
+SES = Session()
 
 # ================================================================
-#                  ANTI-DETECTION HELPERS
+#                  PLAYWRIGHT — STEALTH MODE
 # ================================================================
-USER_AGENTS: list[str] = [
-    (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/129.0.0.0 Safari/537.36"
-    ),
-    (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/129.0.0.0 Safari/537.36"
-    ),
-    (
-        "Mozilla/5.0 (X11; Linux x86_64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/128.0.0.0 Safari/537.36"
-    ),
-]
-
-STEALTH_SCRIPT: str = """
-    Object.defineProperty(navigator, 'webdriver',
-        { get: () => undefined });
-    Object.defineProperty(navigator, 'plugins',
-        { get: () => [1, 2, 3, 4, 5] });
-    Object.defineProperty(navigator, 'languages',
-        { get: () => ['en-US', 'en'] });
-    Object.defineProperty(navigator, 'hardwareConcurrency',
-        { get: () => 4 });
-    window.chrome = { runtime: {} };
+STEALTH_JS = """
+    Object.defineProperty(navigator, 'webdriver',  { get: () => undefined });
+    Object.defineProperty(navigator, 'plugins',    { get: () => [1,2,3,4,5] });
+    Object.defineProperty(navigator, 'languages',  { get: () => ['en-US','en'] });
+    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+    Object.defineProperty(navigator, 'deviceMemory',{ get: () => 8 });
+    window.chrome = { runtime: {}, loadTimes: () => {}, csi: () => {} };
+    const orig = HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL = function() {
+        return orig.apply(this, arguments);
+    };
 """
 
+async def get_page(headless: bool = True) -> Page:
+    if SES.page and not SES.page.is_closed():
+        return SES.page
 
-async def human_delay(min_s: float = 1.2, max_s: float = 4.0) -> None:
-    await asyncio.sleep(random.uniform(min_s, max_s))
+    logger.info("🌐 Launching browser...")
+    SES._pw = await async_playwright().start()
 
-
-async def human_type(page: Page, selector: str, text: str) -> None:
-    await page.click(selector)
-    await human_delay(0.2, 0.6)
-    for char in text:
-        await page.keyboard.type(char, delay=random.randint(40, 110))
-    await human_delay(0.2, 0.6)
-
-
-# ================================================================
-#                  KEYBOARD FACTORY
-# ================================================================
-def main_menu(logged_in: bool = False) -> InlineKeyboardMarkup:
-    if logged_in:
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔗 Create Smartlink",    callback_data="create_smartlink")],
-            [InlineKeyboardButton("📊 Session Status",      callback_data="status")],
-            [InlineKeyboardButton("🚪 Logout",              callback_data="logout")],
-        ])
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔐 Login",                   callback_data="login")],
-        [
-            InlineKeyboardButton("🎲 Auto Sign Up",         callback_data="auto_signup"),
-            InlineKeyboardButton("✍️ Manual Sign Up",       callback_data="manual_signup"),
-        ],
-        [InlineKeyboardButton("🎰 Generate Test Data",      callback_data="generate_data")],
-        [InlineKeyboardButton("📊 Status",                  callback_data="status")],
-    ])
-
-
-def signup_confirm_keyboard(profile: PublisherProfile) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Use This Profile",        callback_data="confirm_signup")],
-        [InlineKeyboardButton("🔄 Generate Another",        callback_data="auto_signup")],
-        [InlineKeyboardButton("✍️ Edit Manually",           callback_data="manual_signup")],
-        [InlineKeyboardButton("❌ Cancel",                  callback_data="cancel_signup")],
-    ])
-
-
-CONFIRM_LOGOUT_KB = InlineKeyboardMarkup([
-    [
-        InlineKeyboardButton("✅ Yes, Logout",              callback_data="logout_confirm"),
-        InlineKeyboardButton("❌ Cancel",                   callback_data="logout_cancel"),
-    ]
-])
-
-GENERATE_MORE_KB = InlineKeyboardMarkup([
-    [InlineKeyboardButton("🔄 Generate More",               callback_data="generate_data")],
-    [InlineKeyboardButton("🎲 Auto Sign Up",                callback_data="auto_signup")],
-    [InlineKeyboardButton("🏠 Main Menu",                   callback_data="main_menu")],
-])
-
-# ================================================================
-#                  TELEGRAM UTILITIES
-# ================================================================
-async def safe_edit(query, text: str, keyboard=None) -> None:
-    kwargs = {"text": text, "parse_mode": "HTML"}
-    if keyboard:
-        kwargs["reply_markup"] = keyboard
-    try:
-        await query.edit_message_text(**kwargs)
-    except Exception as exc:
-        logger.warning("safe_edit: %s", exc)
-
-
-async def notify_admin(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
-    try:
-        await context.bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=text,
-            parse_mode="HTML",
-        )
-    except Exception as exc:
-        logger.warning("Notify: %s", exc)
-
-
-async def delete_msg(update: Update) -> None:
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-
-
-def format_profile_card(profile: PublisherProfile, title: str = "👤 Publisher Profile") -> str:
-    """Format a profile into a beautiful Telegram message."""
-    tier_emoji = {1: "🥇", 2: "🥈", 3: "🥉"}.get(
-        profile.country.get("tier", 1), "🌍"
-    )
-    return (
-        f"<b>{title}</b>\n"
-        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-        f"👤 <b>Full Name</b>   : <code>{profile.full_name}</code>\n"
-        f"📧 <b>Email</b>       : <code>{profile.email}</code>\n"
-        f"🔑 <b>Password</b>    : <code>{profile.password}</code>\n"
-        f"{tier_emoji} <b>Country</b>     : {profile.country.get('name', 'N/A')}\n"
-        f"🌐 <b>Website</b>     : <code>{profile.website_url}</code>\n"
-        f"📂 <b>Niche</b>       : {profile.website_niche.title()}\n"
-        f"✈️ <b>Telegram</b>    : <code>{profile.telegram}</code>\n"
-        f"💬 <b>Skype</b>       : <code>{profile.skype}</code>\n"
-        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-        f"🕐 Generated : {profile.generated_at}"
-    )
-
-
-# ================================================================
-#                  PLAYWRIGHT ENGINE
-# ================================================================
-async def get_page() -> Page:
-    if SESSION.page and not SESSION.page.is_closed():
-        return SESSION.page
-
-    logger.info("🌐 Launching browser…")
-    SESSION._playwright = await async_playwright().start()
-    SESSION.browser = await SESSION._playwright.chromium.launch(
-        headless=True,
+    SES.browser = await SES._pw.chromium.launch(
+        headless=headless,
         args=[
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-blink-features=AutomationControlled",
-            "--disable-infobars",
+            "--disable-features=IsolateOrigins,site-per-process",
+            "--disable-site-isolation-trials",
             "--window-size=1366,768",
-            "--disable-gpu",
         ],
     )
-    SESSION.ctx = await SESSION.browser.new_context(
-        user_agent=random.choice(USER_AGENTS),
+
+    SES.ctx = await SES.browser.new_context(
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/129.0.0.0 Safari/537.36"
+        ),
         viewport={"width": 1366, "height": 768},
         locale="en-US",
         timezone_id="America/New_York",
+        extra_http_headers={
+            "Accept-Language": "en-US,en;q=0.9",
+        },
     )
-    await SESSION.ctx.add_init_script(STEALTH_SCRIPT)
-    SESSION.page = await SESSION.ctx.new_page()
-    SESSION.page.set_default_timeout(45_000)
-    logger.info("✅ Browser ready")
-    return SESSION.page
 
+    await SES.ctx.add_init_script(STEALTH_JS)
+    SES.page = await SES.ctx.new_page()
+    SES.page.set_default_timeout(60_000)
+    return SES.page
+
+
+async def human_delay(a: float = 0.8, b: float = 2.0):
+    await asyncio.sleep(random.uniform(a, b))
+
+
+async def human_type(page: Page, selector: str, text: str):
+    await page.click(selector)
+    await human_delay(0.2, 0.5)
+    for ch in text:
+        await page.keyboard.type(ch, delay=random.randint(50, 130))
+    await human_delay(0.2, 0.5)
+
+
+# ================================================================
+#         REAL FIELD SELECTORS (from your screenshot)
+# ================================================================
+"""
+Based on the actual signup page, the form uses Vuetify components.
+Real selectors for Adsterra Beta Signup:
+"""
+
+SIGNUP_SELECTORS = {
+    # ── Input fields (Vuetify wraps in .v-input) ──────────────
+    "email":             'input[type="email"], input[autocomplete="email"]',
+    "full_name":         'input[autocomplete="name"], label:has-text("First and Last Name") + input, .v-input:has(label:has-text("First and Last Name")) input',
+    "login":             '.v-input:has(label:has-text("Login")) input',
+    "password":          'input[type="password"], .v-input:has(label:has-text("Password")) input',
+    "messenger_account": '.v-input:has(label:has-text("Messenger account")) input',
+
+    # ── Dropdowns ─────────────────────────────────────────────
+    "messenger":         '.v-select:has(label:has-text("Messenger"))',
+    "country":           '.v-select:has(label:has-text("country")), .v-select:has(label:has-text("Country"))',
+
+    # ── Checkbox ──────────────────────────────────────────────
+    "terms":             'input[type="checkbox"]',
+
+    # ── Submit ────────────────────────────────────────────────
+    "submit":            'button:has-text("SIGN UP"), button:has-text("Sign Up")',
+}
+
+LOGIN_SELECTORS = {
+    "email":    'input[type="email"], input[autocomplete="email"], input[autocomplete="username"]',
+    "password": 'input[type="password"]',
+    "submit":   'button:has-text("LOG IN"), button:has-text("Log In"), button[type="submit"]',
+}
 
 # ================================================================
 #              CORE AUTOMATION — SIGN UP
 # ================================================================
-async def automation_signup(profile: PublisherProfile) -> dict:
+async def auto_signup(profile: Profile) -> dict:
     """
-    Full Adsterra publisher signup automation
-    using a generated or manual profile.
+    Real Adsterra Beta signup automation.
+    Handles Vuetify components + Cloudflare Turnstile.
     """
     try:
-        page = await get_page()
-        logger.info("📝 Navigating to signup…")
-        await page.goto(ADSTERRA_SIGNUP_URL, wait_until="networkidle")
+        page = await get_page(headless=True)
+        logger.info("📝 Loading signup page...")
+        await page.goto(SIGNUP_URL, wait_until="domcontentloaded")
+        await human_delay(3.0, 5.0)
+        await page.wait_for_load_state("networkidle", timeout=30_000)
+
+        # ── 1. Email ──────────────────────────────────────────
+        logger.info("📧 Filling email...")
+        try:
+            await page.locator(SIGNUP_SELECTORS["email"]).first.click()
+            await human_delay()
+            await page.keyboard.type(profile.email, delay=80)
+            await human_delay(0.5, 1.0)
+        except Exception as e:
+            logger.error("Email fill failed: %s", e)
+            return {"success": False, "message": f"Email field error: {e}"}
+
+        # ── 2. Full Name ──────────────────────────────────────
+        logger.info("👤 Filling name...")
+        try:
+            # Vuetify uses label wrapping
+            name_input = page.locator('input').nth(1)  # 2nd input on page
+            await name_input.click()
+            await human_delay()
+            await page.keyboard.type(profile.full_name, delay=80)
+            await human_delay(0.5, 1.0)
+        except Exception as e:
+            logger.error("Name fill failed: %s", e)
+
+        # ── 3. Login (username) ───────────────────────────────
+        logger.info("🆔 Filling login...")
+        try:
+            login_input = page.locator('input').nth(2)
+            await login_input.click()
+            await human_delay()
+            await page.keyboard.type(profile.login, delay=80)
+            await human_delay(0.5, 1.0)
+        except Exception as e:
+            logger.error("Login fill failed: %s", e)
+
+        # ── 4. Password ───────────────────────────────────────
+        logger.info("🔑 Filling password...")
+        try:
+            pw_input = page.locator('input[type="password"]').first
+            await pw_input.click()
+            await human_delay()
+            await page.keyboard.type(profile.password, delay=80)
+            await human_delay(0.5, 1.0)
+        except Exception as e:
+            logger.error("Password fill failed: %s", e)
+
+        # ── 5. Messenger Dropdown ─────────────────────────────
+        logger.info("💬 Selecting messenger: %s", profile.messenger)
+        try:
+            # Click the messenger dropdown
+            messenger_dd = page.locator('.v-select').nth(0)
+            await messenger_dd.click()
+            await human_delay(1.0, 2.0)
+
+            # Click the option in the dropdown menu
+            option = page.locator(f'.v-list-item:has-text("{profile.messenger}")').first
+            if await option.count() > 0:
+                await option.click()
+                logger.info("✅ Messenger selected")
+            await human_delay()
+        except Exception as e:
+            logger.error("Messenger select failed: %s", e)
+
+        # ── 6. Messenger Account ──────────────────────────────
+        logger.info("📱 Filling messenger account...")
+        try:
+            # Find input after messenger dropdown
+            msg_inputs = await page.locator('input[type="text"]').all()
+            if msg_inputs:
+                # Find the messenger account input (last text input usually)
+                for inp in msg_inputs:
+                    placeholder = await inp.get_attribute("placeholder") or ""
+                    aria        = await inp.get_attribute("aria-label")  or ""
+                    if "messenger" in (placeholder + aria).lower() and "account" in (placeholder + aria).lower():
+                        await inp.click()
+                        await human_delay()
+                        await page.keyboard.type(profile.messenger_account, delay=80)
+                        break
+                else:
+                    # Fallback: try the 5th input
+                    await page.locator('input').nth(4).click()
+                    await human_delay()
+                    await page.keyboard.type(profile.messenger_account, delay=80)
+            await human_delay(0.5, 1.0)
+        except Exception as e:
+            logger.error("Messenger account fill failed: %s", e)
+
+        # ── 7. Country Dropdown ───────────────────────────────
+        logger.info("🌍 Selecting country: %s", profile.country)
+        try:
+            country_dd = page.locator('.v-select').nth(1)
+            await country_dd.click()
+            await human_delay(1.0, 2.0)
+
+            # Type to search
+            await page.keyboard.type(profile.country[:5], delay=100)
+            await human_delay(1.0, 2.0)
+
+            # Click matching option
+            option = page.locator(f'.v-list-item:has-text("{profile.country}")').first
+            if await option.count() > 0:
+                await option.click()
+                logger.info("✅ Country selected")
+            else:
+                # Just pick first option
+                first_opt = page.locator('.v-list-item').first
+                if await first_opt.count() > 0:
+                    await first_opt.click()
+            await human_delay()
+        except Exception as e:
+            logger.error("Country select failed: %s", e)
+
+        # ── 8. CLOUDFLARE TURNSTILE ───────────────────────────
+        logger.info("🛡️ Checking for Cloudflare Turnstile...")
         await human_delay(2.0, 4.0)
 
-        # ── Full Name ─────────────────────────────────────────
-        for sel in [
-            'input[name="name"]',
-            'input[name="full_name"]',
-            'input[name="fullName"]',
-            'input[placeholder*="name" i]',
-        ]:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await human_type(page, sel, profile.full_name)
-                    logger.info("👤 Name: %s", profile.full_name)
-                    break
-            except Exception:
-                continue
+        try:
+            # Look for Turnstile iframe
+            turnstile_present = await page.locator('iframe[src*="challenges.cloudflare.com"]').count() > 0
 
-        await human_delay(0.5, 1.0)
+            if turnstile_present:
+                logger.info("⚠️ Cloudflare Turnstile detected!")
+                logger.info("⏳ Waiting up to 30s for auto-solve...")
 
-        # ── Email ─────────────────────────────────────────────
-        for sel in [
-            'input[type="email"]',
-            'input[name="email"]',
-            'input[placeholder*="email" i]',
-        ]:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await human_type(page, sel, profile.email)
-                    logger.info("📧 Email: %s", profile.email)
-                    break
-            except Exception:
-                continue
+                # Wait for token to appear in DOM
+                for i in range(30):
+                    token = await page.evaluate("""() => {
+                        const inputs = document.querySelectorAll('input[name="cf-turnstile-response"]');
+                        for (const inp of inputs) {
+                            if (inp.value && inp.value.length > 20) return inp.value;
+                        }
+                        return null;
+                    }""")
+                    if token:
+                        logger.info("✅ Turnstile solved! Token length: %d", len(token))
+                        break
+                    await asyncio.sleep(1)
+                else:
+                    logger.warning("⚠️ Turnstile NOT solved automatically.")
+                    return {
+                        "success": False,
+                        "message": (
+                            "🛡️ Cloudflare Turnstile blocked the signup.\n\n"
+                            "This is the main blocker for automated signups.\n"
+                            "Solutions:\n"
+                            "• Use a CAPTCHA solver service (2Captcha, CapMonster)\n"
+                            "• Run with headless=False on residential IP\n"
+                            "• Sign up manually one time"
+                        ),
+                    }
+            else:
+                logger.info("✅ No Turnstile detected (or already solved)")
+        except Exception as e:
+            logger.warning("Turnstile check error: %s", e)
 
-        await human_delay(0.5, 1.0)
-
-        # ── Password ──────────────────────────────────────────
-        for sel in [
-            'input[type="password"]',
-            'input[name="password"]',
-            'input[placeholder*="password" i]',
-        ]:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await human_type(page, sel, profile.password)
-                    logger.info("🔑 Password filled")
-                    break
-            except Exception:
-                continue
-
-        await human_delay(0.5, 1.0)
-
-        # ── Confirm Password ──────────────────────────────────
-        for sel in [
-            'input[name="password_confirmation"]',
-            'input[name="confirm_password"]',
-            'input[name="confirmPassword"]',
-            'input[placeholder*="confirm" i]',
-            'input[placeholder*="repeat" i]',
-        ]:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await human_type(page, sel, profile.password)
-                    logger.info("🔑 Confirm password filled")
-                    break
-            except Exception:
-                continue
-
-        await human_delay(0.5, 1.0)
-
-        # ── Website ───────────────────────────────────────────
-        for sel in [
-            'input[name="website"]',
-            'input[name="site_url"]',
-            'input[name="url"]',
-            'input[placeholder*="website" i]',
-            'input[placeholder*="url" i]',
-            'input[placeholder*="site" i]',
-        ]:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await human_type(page, sel, profile.website_url)
-                    logger.info("🌐 Website: %s", profile.website_url)
-                    break
-            except Exception:
-                continue
-
-        await human_delay(0.5, 1.0)
-
-        # ── Country Selector ──────────────────────────────────
-        for sel in [
-            'select[name="country"]',
-            'select[name="country_id"]',
-            '[class*="country"] select',
-        ]:
-            try:
-                if await page.locator(sel).count() > 0:
-                    # Try by value (country code)
-                    try:
-                        await page.select_option(
-                            sel,
-                            value=profile.country.get("code", "US"),
-                        )
-                    except Exception:
-                        # Try by label (country name)
-                        await page.select_option(
-                            sel,
-                            label=profile.country.get("name", "United States"),
-                        )
-                    logger.info("🌍 Country: %s", profile.country.get("name"))
-                    await human_delay(0.5, 1.0)
-                    break
-            except Exception:
-                continue
-
-        # ── Telegram / Skype / Messenger ──────────────────────
-        messenger_fields = {
-            'input[name="telegram"]':           profile.telegram,
-            'input[name="skype"]':              profile.skype,
-            'input[placeholder*="telegram" i]': profile.telegram,
-            'input[placeholder*="skype" i]':    profile.skype,
-            'input[placeholder*="messenger" i]':profile.telegram,
-            'input[placeholder*="contact" i]':  profile.telegram,
-        }
-        for sel, value in messenger_fields.items():
-            try:
-                if await page.locator(sel).count() > 0:
-                    await human_type(page, sel, value)
-                    logger.info("💬 Messenger filled: %s", value)
-                    break
-            except Exception:
-                continue
+        # ── 9. Terms Checkbox ─────────────────────────────────
+        logger.info("☑️ Checking terms...")
+        try:
+            checkbox = page.locator('input[type="checkbox"]').first
+            if await checkbox.count() > 0:
+                if not await checkbox.is_checked():
+                    # Click parent label since Vuetify wraps checkbox
+                    await page.locator('.v-checkbox, label:has(input[type="checkbox"])').first.click()
+                    await human_delay()
+                    logger.info("✅ Terms checked")
+        except Exception as e:
+            logger.error("Terms checkbox failed: %s", e)
 
         await human_delay(1.0, 2.0)
 
-        # ── Traffic source / How did you hear ─────────────────
-        for sel in [
-            'select[name="traffic_source"]',
-            'select[name="source"]',
-            'select[name="how_did_you_hear"]',
-        ]:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await page.select_option(sel, index=1)
-                    await human_delay(0.5, 1.0)
-                    break
-            except Exception:
-                continue
+        # ── 10. Click SIGN UP ─────────────────────────────────
+        logger.info("🚀 Clicking SIGN UP...")
+        try:
+            submit_btn = page.locator(SIGNUP_SELECTORS["submit"]).first
+            await submit_btn.click()
+            logger.info("✅ Submit clicked")
+        except Exception as e:
+            logger.error("Submit failed: %s", e)
+            return {"success": False, "message": f"Submit error: {e}"}
 
-        # ── Terms Checkbox ────────────────────────────────────
-        checkbox_selectors = [
-            'input[type="checkbox"][name*="agree" i]',
-            'input[type="checkbox"][name*="terms" i]',
-            'input[type="checkbox"][id*="agree" i]',
-            'input[type="checkbox"][id*="terms" i]',
-            'input[type="checkbox"]',
-        ]
-        for sel in checkbox_selectors:
-            try:
-                cb = page.locator(sel).first
-                if await cb.count() > 0:
-                    if not await cb.is_checked():
-                        await cb.check()
-                        logger.info("☑️ Terms checked")
-                    break
-            except Exception:
-                continue
+        # ── 11. Wait for response ─────────────────────────────
+        await human_delay(5.0, 8.0)
+        try:
+            await page.wait_for_load_state("networkidle", timeout=20_000)
+        except Exception:
+            pass
 
-        await human_delay(1.0, 2.0)
+        url_      = page.url.lower()
+        page_text = (await page.inner_text("body")).lower()
+        logger.info("📍 Post-submit URL: %s", url_)
 
-        # ── Submit ────────────────────────────────────────────
-        for sel in [
-            'button[type="submit"]',
-            'input[type="submit"]',
-            'button:has-text("Register")',
-            'button:has-text("Sign Up")',
-            'button:has-text("Create Account")',
-            'button:has-text("Get Started")',
-            'button:has-text("Join")',
-        ]:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await page.click(sel)
-                    logger.info("🖱️ Form submitted")
-                    break
-            except Exception:
-                continue
-
-        await page.wait_for_load_state("networkidle")
-        await human_delay(4.0, 7.0)
-
-        current_url = page.url.lower()
-        page_text   = (await page.inner_text("body")).lower()
-
-        # ── Detect confirmation needed ────────────────────────
-        if any(k in current_url or k in page_text for k in [
-            "confirm", "verify", "verification",
-            "check your email", "activation", "sent",
+        # ── 12. Detect outcome ────────────────────────────────
+        if any(k in page_text for k in [
+            "confirm your email", "verify your email",
+            "check your email", "confirmation email",
+            "sent to your email", "activate your account",
         ]):
-            SESSION.awaiting_confirm = True
-            SESSION.signup_done      = True
-            return {"success": True, "needs_confirm": True,
-                    "message": "Signup done! Check your email."}
+            SES.awaiting_confirm = True
+            return {
+                "success": True,
+                "needs_confirm": True,
+                "message": "Signup successful! Check your email.",
+            }
 
-        # ── Detect direct login ───────────────────────────────
-        if any(k in current_url for k in ["dashboard", "publisher", "smartlink"]):
-            SESSION.logged_in   = True
-            SESSION.signup_done = True
-            return {"success": True, "needs_confirm": False,
-                    "message": "Signup & logged in!"}
+        if any(k in url_ for k in ["dashboard", "verify", "confirm"]):
+            SES.awaiting_confirm = "verify" in url_ or "confirm" in url_
+            return {
+                "success": True,
+                "needs_confirm": SES.awaiting_confirm,
+                "message": "Signup submitted!",
+            }
 
-        # ── Detect errors ─────────────────────────────────────
-        for sel in [".alert-danger", ".error-message", "[class*='error']", "p.text-red"]:
+        # Check for errors
+        error_selectors = [
+            ".v-messages__message",
+            ".error--text",
+            ".v-alert--type-error",
+            "[class*='error']",
+        ]
+        for sel in error_selectors:
             try:
-                el = page.locator(sel)
-                if await el.count() > 0:
-                    err = (await el.first.inner_text()).strip()
-                    if err:
-                        return {"success": False, "needs_confirm": False,
-                                "message": f"Error: {err}"}
+                els = await page.locator(sel).all()
+                for el in els:
+                    txt = (await el.inner_text()).strip()
+                    if txt and len(txt) < 300:
+                        return {
+                            "success": False,
+                            "needs_confirm": False,
+                            "message": f"Form error: {txt}",
+                        }
             except Exception:
                 continue
 
-        return {"success": False, "needs_confirm": False,
-                "message": "Signup outcome unclear. Check email or try again."}
+        # Screenshot for debugging
+        await page.screenshot(path="signup_result.png", full_page=True)
+
+        return {
+            "success": False,
+            "needs_confirm": False,
+            "message": (
+                "Signup outcome unclear. Possible reasons:\n"
+                "• Cloudflare Turnstile not solved\n"
+                "• Form validation error\n"
+                "• Email already registered\n\n"
+                "Check signup_result.png for details."
+            ),
+        }
 
     except Exception as exc:
-        logger.exception("Signup error")
+        logger.exception("Signup crashed")
         return {"success": False, "needs_confirm": False, "message": str(exc)}
 
 
 # ================================================================
-#              CORE AUTOMATION — CONFIRM EMAIL
+#              CORE AUTOMATION — LOGIN
 # ================================================================
-async def automation_confirm(confirm_url: str) -> dict:
+async def auto_login() -> dict:
     try:
-        page = await get_page()
-        logger.info("🔗 Opening confirmation: %s", confirm_url)
-        await page.goto(confirm_url, wait_until="networkidle")
+        page = await get_page(headless=True)
+        logger.info("🔑 Loading login page...")
+        await page.goto(LOGIN_URL, wait_until="domcontentloaded")
+        await human_delay(3.0, 5.0)
+        await page.wait_for_load_state("networkidle", timeout=20_000)
+
+        # Email
+        logger.info("📧 Filling email...")
+        try:
+            await page.locator(LOGIN_SELECTORS["email"]).first.click()
+            await human_delay()
+            await page.keyboard.type(SES.email, delay=80)
+            await human_delay(0.5, 1.0)
+        except Exception as e:
+            return {"success": False, "message": f"Email field: {e}"}
+
+        # Password
+        logger.info("🔑 Filling password...")
+        try:
+            await page.locator(LOGIN_SELECTORS["password"]).first.click()
+            await human_delay()
+            await page.keyboard.type(SES.password, delay=80)
+            await human_delay(0.5, 1.0)
+        except Exception as e:
+            return {"success": False, "message": f"Password field: {e}"}
+
+        # Cloudflare check
+        await human_delay(2.0, 4.0)
+        if await page.locator('iframe[src*="challenges.cloudflare.com"]').count() > 0:
+            logger.info("🛡️ Turnstile on login - waiting...")
+            for i in range(30):
+                token = await page.evaluate("""() => {
+                    const i = document.querySelector('input[name="cf-turnstile-response"]');
+                    return i && i.value && i.value.length > 20 ? i.value : null;
+                }""")
+                if token:
+                    break
+                await asyncio.sleep(1)
+
+        # Submit
+        logger.info("🚀 Submitting...")
+        await page.locator(LOGIN_SELECTORS["submit"]).first.click()
+        await human_delay(4.0, 7.0)
+
+        try:
+            await page.wait_for_load_state("networkidle", timeout=20_000)
+        except Exception:
+            pass
+
+        url_ = page.url.lower()
+        logger.info("📍 Post-login URL: %s", url_)
+
+        if any(k in url_ for k in ["dashboard", "publisher", "home", "smartlink"]):
+            SES.logged_in = True
+            return {"success": True, "message": "Login successful!"}
+
+        # Check errors
+        for sel in [".v-messages__message", ".error--text", ".v-alert"]:
+            try:
+                els = await page.locator(sel).all()
+                for el in els:
+                    txt = (await el.inner_text()).strip()
+                    if txt:
+                        return {"success": False, "message": f"Error: {txt}"}
+            except Exception:
+                continue
+
+        await page.screenshot(path="login_result.png", full_page=True)
+        return {"success": False, "message": "Login failed — check login_result.png"}
+
+    except Exception as exc:
+        logger.exception("Login crashed")
+        return {"success": False, "message": str(exc)}
+
+
+# ================================================================
+#         CORE AUTOMATION — OPEN CONFIRMATION LINK
+# ================================================================
+async def auto_confirm(url: str) -> dict:
+    try:
+        page = await get_page(headless=True)
+        logger.info("🔗 Opening: %s", url)
+        await page.goto(url, wait_until="networkidle", timeout=30_000)
         await human_delay(3.0, 6.0)
 
         url_  = page.url.lower()
@@ -881,1161 +652,461 @@ async def automation_confirm(confirm_url: str) -> dict:
 
         if any(k in url_ or k in text_ for k in [
             "verified", "confirmed", "success",
-            "congratulation", "dashboard", "welcome",
+            "dashboard", "welcome", "activated",
         ]):
-            SESSION.awaiting_confirm = False
+            SES.awaiting_confirm = False
             return {"success": True, "message": "Email confirmed!"}
 
-        if any(k in text_ for k in ["expired", "invalid", "already"]):
-            return {"success": False,
-                    "message": "Link expired or already used."}
+        if any(k in text_ for k in ["expired", "invalid", "already used"]):
+            return {"success": False, "message": "Link expired or invalid."}
 
-        return {"success": True,
-                "message": "Link opened. Proceeding to login…"}
+        return {"success": True, "message": "Link opened — proceeding to login."}
 
     except Exception as exc:
-        logger.exception("Confirm error")
         return {"success": False, "message": str(exc)}
 
 
 # ================================================================
-#              CORE AUTOMATION — LOGIN
+#                  TELEGRAM KEYBOARDS
 # ================================================================
-async def automation_login() -> dict:
+def menu(logged_in: bool = False) -> InlineKeyboardMarkup:
+    if logged_in:
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("📊 Status",   callback_data="status")],
+            [InlineKeyboardButton("🚪 Logout",   callback_data="logout")],
+        ])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔐 Login",                callback_data="login")],
+        [InlineKeyboardButton("🎲 Auto Sign Up",         callback_data="auto_signup")],
+        [InlineKeyboardButton("✍️ Manual Sign Up",       callback_data="manual_signup")],
+        [InlineKeyboardButton("📊 Status",                callback_data="status")],
+    ])
+
+
+CONFIRM_KB = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("✅ Use This",     callback_data="confirm_signup"),
+        InlineKeyboardButton("🔄 Regenerate",   callback_data="auto_signup"),
+    ],
+    [InlineKeyboardButton("❌ Cancel",          callback_data="cancel_signup")],
+])
+
+LOGOUT_KB = InlineKeyboardMarkup([
+    [
+        InlineKeyboardButton("✅ Yes",          callback_data="logout_yes"),
+        InlineKeyboardButton("❌ No",           callback_data="logout_no"),
+    ]
+])
+
+# ================================================================
+#                  TELEGRAM HELPERS
+# ================================================================
+async def safe_edit(query, text: str, kb=None):
     try:
-        page = await get_page()
-        logger.info("🔑 Logging in…")
-        await page.goto(ADSTERRA_LOGIN_URL, wait_until="networkidle")
-        await human_delay(2.0, 4.0)
-
-        # Email
-        for sel in ['input[type="email"]', 'input[name="email"]',
-                    'input[placeholder*="email" i]']:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await human_type(page, sel, SESSION.email)
-                    break
-            except Exception:
-                continue
-
-        await human_delay(0.8, 1.5)
-
-        # Password
-        for sel in ['input[type="password"]', 'input[name="password"]',
-                    'input[placeholder*="password" i]']:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await human_type(page, sel, SESSION.password)
-                    break
-            except Exception:
-                continue
-
-        await human_delay(1.0, 2.0)
-
-        # Submit
-        for sel in ['button[type="submit"]', 'button:has-text("Login")',
-                    'button:has-text("Sign in")', 'button:has-text("Log in")']:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await page.click(sel)
-                    break
-            except Exception:
-                continue
-
-        await page.wait_for_load_state("networkidle")
-        await human_delay(4.0, 7.0)
-
-        url_ = page.url.lower()
-        success_signals = [
-            "dashboard" in url_, "publisher" in url_,
-            "smartlink" in url_, "/home" in url_,
-            await page.locator("text=Dashboard").count() > 0,
-            await page.locator("text=Log out").count()  > 0,
-        ]
-
-        if any(success_signals):
-            SESSION.logged_in = True
-            return {"success": True, "message": "Login successful"}
-
-        for sel in [".alert-danger", ".error-message", "[class*='error']"]:
-            try:
-                el = page.locator(sel)
-                if await el.count() > 0:
-                    err = (await el.first.inner_text()).strip()
-                    if err:
-                        return {"success": False, "message": err}
-            except Exception:
-                continue
-
-        return {"success": False,
-                "message": "Login failed — wrong credentials or CAPTCHA."}
-
-    except Exception as exc:
-        logger.exception("Login error")
-        return {"success": False, "message": str(exc)}
+        await query.edit_message_text(
+            text, parse_mode="HTML",
+            reply_markup=kb,
+            disable_web_page_preview=True,
+        )
+    except Exception as e:
+        logger.warning("edit failed: %s", e)
 
 
-# ================================================================
-#              CORE AUTOMATION — CREATE SMARTLINK
-# ================================================================
-async def automation_create_smartlink() -> dict:
+async def notify(ctx, text: str):
     try:
-        page = await get_page()
-        await page.goto(ADSTERRA_SMARTLINK_URL, wait_until="networkidle")
-        await human_delay(3.0, 5.5)
+        await ctx.bot.send_message(
+            TELEGRAM_CHAT_ID, text,
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
 
-        for sel in ["text=Create Smartlink", "text=New Smartlink",
-                    "button:has-text('Create')", "a:has-text('Create')"]:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await page.click(sel)
-                    break
-            except Exception:
-                continue
 
-        await human_delay(2.5, 4.5)
-        name = f"AutoLink_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+async def del_msg(update: Update):
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
 
-        for sel in ['input[name="name"]', 'input[placeholder*="name" i]']:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await human_type(page, sel, name)
-                    break
-            except Exception:
-                continue
 
-        await human_delay(1.0, 2.0)
-
-        for sel in ['select[name="category"]', 'select[name="vertical"]']:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await page.select_option(sel, index=1)
-                    await human_delay(1.0, 2.0)
-                    break
-            except Exception:
-                continue
-
-        for sel in ['button[type="submit"]', "text=Create", "text=Save"]:
-            try:
-                if await page.locator(sel).count() > 0:
-                    await page.click(sel)
-                    break
-            except Exception:
-                continue
-
-        await human_delay(5.0, 9.0)
-
-        for sel in ["input[value^='https://']", "input[value^='http://']"]:
-            try:
-                el = page.locator(sel).first
-                if await el.count() > 0:
-                    url = await el.input_value()
-                    if url.startswith("http"):
-                        return {"success": True, "url": url, "name": name,
-                                "message": "Created!"}
-            except Exception:
-                continue
-
-        return {"success": True, "url": None, "name": name,
-                "message": "Created — check dashboard for URL."}
-
-    except Exception as exc:
-        logger.exception("Smartlink error")
-        return {"success": False, "url": None, "name": None, "message": str(exc)}
+def card(p: Profile) -> str:
+    return (
+        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"📧 <b>Email</b>     : <code>{p.email}</code>\n"
+        f"👤 <b>Name</b>      : <code>{p.full_name}</code>\n"
+        f"🆔 <b>Login</b>     : <code>{p.login}</code>\n"
+        f"🔑 <b>Password</b>  : <code>{p.password}</code>\n"
+        f"💬 <b>Messenger</b> : {p.messenger}\n"
+        f"📱 <b>Account</b>   : <code>{p.messenger_account}</code>\n"
+        f"🌍 <b>Country</b>   : {p.country}\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>"
+    )
 
 
 # ================================================================
 #                  COMMAND HANDLERS
 # ================================================================
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user        = update.effective_user
-    status_icon = "🟢 Active" if SESSION.logged_in else "🔴 Not logged in"
-    account     = f"<code>{SESSION.email}</code>" if SESSION.email else "N/A"
-
+async def cmd_start(update: Update, ctx):
+    user = update.effective_user
     text = (
-        f"👋 <b>Hello, {user.first_name}!</b>\n\n"
-        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-        f"🤖 <b>Adsterra Publisher Bot</b>\n"
-        f"   God Level Edition v3.0\n"
-        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n"
-        f"📌 Session : {status_icon}\n"
-        f"👤 Account : {account}\n"
-        f"🕐 Time    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n"
-        f"<b>Features:</b>\n"
-        f"  🎲 Auto-generate realistic test data\n"
-        f"  🤖 Fully automated signup\n"
-        f"  📧 Email confirmation handler\n"
-        f"  🔐 Auto re-login after confirm\n"
-        f"  🔗 Smartlink creation\n\n"
-        f"Choose below 👇"
+        f"👋 <b>Hi {user.first_name}!</b>\n\n"
+        f"🤖 <b>Adsterra Bot — REAL Edition</b>\n"
+        f"<i>Uses actual form selectors from beta site</i>\n\n"
+        f"📌 Status: {'🟢 Logged in' if SES.logged_in else '🔴 Not logged in'}\n"
+        f"👤 Account: {SES.email or 'N/A'}\n\n"
+        f"⚠️ <b>Known Issue:</b>\n"
+        f"Adsterra uses <b>Cloudflare Turnstile</b> which blocks\n"
+        f"most automated signups. The bot tries its best but\n"
+        f"may fail on CAPTCHA. Use a residential proxy or\n"
+        f"manual signup if it fails.\n\n"
+        f"Choose below:"
     )
     await update.message.reply_text(
-        text,
-        parse_mode="HTML",
-        reply_markup=main_menu(SESSION.logged_in),
+        text, parse_mode="HTML",
+        reply_markup=menu(SES.logged_in),
     )
 
 
-async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    status_icon = "🟢 Active"  if SESSION.logged_in    else "🔴 Inactive"
-    browser_st  = "🟢 Running" if SESSION.browser_alive else "⚫ Closed"
-    confirm_st  = "⏳ Pending" if SESSION.awaiting_confirm else "✅ OK"
-    account     = f"<code>{SESSION.email}</code>" if SESSION.email else "N/A"
-
-    profile_row = ""
-    if SESSION.current_profile:
-        p = SESSION.current_profile
-        profile_row = (
-            f"\n<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            f"🎲 <b>Current Profile</b>\n"
-            f"👤 {p.full_name}\n"
-            f"🌍 {p.country.get('name', 'N/A')}\n"
-            f"🌐 {p.website_url}\n"
-        )
-
-    text = (
-        f"<b>📊 Live Session Report</b>\n"
-        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-        f"🔐 Login     : {status_icon}\n"
-        f"👤 Account   : {account}\n"
-        f"🌐 Browser   : {browser_st}\n"
-        f"📧 Confirmed : {confirm_st}\n"
-        f"🕐 Time      : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        f"{profile_row}\n"
-        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>"
-    )
+async def cmd_cancel(update: Update, ctx) -> int:
     await update.message.reply_text(
-        text,
-        parse_mode="HTML",
-        reply_markup=main_menu(SESSION.logged_in),
-    )
-
-
-async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "❌ <b>Cancelled.</b>",
-        parse_mode="HTML",
-        reply_markup=main_menu(SESSION.logged_in),
+        "❌ Cancelled.",
+        reply_markup=menu(SES.logged_in),
     )
     return ConversationHandler.END
 
 
 # ================================================================
-#              INLINE — GENERATE TEST DATA
+#              AUTO SIGNUP CONVERSATION
 # ================================================================
-async def inline_generate_data(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
+async def auto_signup_entry(update: Update, ctx) -> int:
+    q = update.callback_query
+    await q.answer()
 
-    profiles = AdsterraDataGenerator.generate_batch(3)
-    text     = "🎰 <b>Generated Test Publisher Profiles</b>\n\n"
-
-    for i, p in enumerate(profiles, 1):
-        tier_emoji = {1: "🥇", 2: "🥈", 3: "🥉"}.get(p.country.get("tier", 1), "🌍")
-        text += (
-            f"<b>── Profile {i} ──────────────────</b>\n"
-            f"👤 <b>Name</b>     : <code>{p.full_name}</code>\n"
-            f"📧 <b>Email</b>    : <code>{p.email}</code>\n"
-            f"🔑 <b>Password</b> : <code>{p.password}</code>\n"
-            f"{tier_emoji} <b>Country</b>  : {p.country.get('name')}\n"
-            f"🌐 <b>Website</b>  : <code>{p.website_url}</code>\n"
-            f"📂 <b>Niche</b>    : {p.website_niche.title()}\n"
-            f"✈️ <b>Telegram</b> : <code>{p.telegram}</code>\n"
-            f"💬 <b>Skype</b>    : <code>{p.skype}</code>\n\n"
-        )
-
-    text += (
-        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-        f"<i>⚠️ Test data only — example domains.\n"
-        f"Use 🎲 Auto Sign Up to register with a\n"
-        f"freshly generated profile!</i>"
-    )
-
-    await safe_edit(query, text, keyboard=GENERATE_MORE_KB)
-    return ConversationHandler.END
-
-
-# ================================================================
-#              INLINE — MAIN MENU BUTTON
-# ================================================================
-async def inline_main_menu(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
-    await safe_edit(
-        query,
-        "🏠 <b>Main Menu</b>\nChoose an option:",
-        keyboard=main_menu(SESSION.logged_in),
-    )
-    return ConversationHandler.END
-
-
-# ================================================================
-#         CONVERSATION — AUTO SIGNUP (generated profile)
-# ================================================================
-async def auto_signup_entry(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
-
-    if SESSION.logged_in:
-        await safe_edit(
-            query,
-            "✅ Already logged in. Logout first.",
-            keyboard=main_menu(True),
-        )
+    if SES.logged_in:
+        await safe_edit(q, "✅ Already logged in.", kb=menu(True))
         return ConversationHandler.END
 
-    # Generate fresh profile
-    profile = AdsterraDataGenerator.generate_profile()
-    SESSION.current_profile = profile
+    profile = Generator.make()
+    SES.profile = profile
 
-    card = format_profile_card(profile, "🎲 Generated Profile — Ready to Register")
-    card += (
-        "\n\n<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-        "⚡ <b>This profile will be used to register\n"
-        "on Adsterra automatically.</b>\n\n"
-        "Review and confirm below:"
+    text = (
+        "🎲 <b>Generated Profile</b>\n\n"
+        + card(profile)
+        + "\n\nReview and confirm:"
     )
-
-    await safe_edit(query, card, keyboard=signup_confirm_keyboard(profile))
+    await safe_edit(q, text, kb=CONFIRM_KB)
     return STATE_SIGNUP_CONFIRM
 
 
-async def auto_signup_confirmed(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
+async def signup_confirmed(update: Update, ctx) -> int:
+    q = update.callback_query
+    await q.answer()
 
-    profile = SESSION.current_profile
-    if not profile:
-        await safe_edit(
-            query, "❌ No profile found. Try again.",
-            keyboard=main_menu(False),
-        )
+    p = SES.profile
+    if not p:
+        await safe_edit(q, "❌ No profile.", kb=menu(False))
         return ConversationHandler.END
 
-    # Store to session
-    SESSION.email         = profile.email
-    SESSION.password      = profile.password
-    SESSION.full_name     = profile.full_name
-    SESSION.website       = profile.website_url
-    SESSION.country       = profile.country.get("name")
-    SESSION.telegram_user = profile.telegram
-    SESSION.skype_user    = profile.skype
+    SES.email    = p.email
+    SES.password = p.password
+    SES.login    = p.login
 
     await safe_edit(
-        query,
+        q,
         (
-            f"⏳ <b>Registering on Adsterra…</b>\n\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            f"👤 {profile.full_name}\n"
-            f"📧 {profile.email}\n"
-            f"🌍 {profile.country.get('name')}\n"
-            f"🌐 {profile.website_url}\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n"
-            f"🌐 Launching browser…\n"
-            f"📝 Filling form…\n"
-            f"⏳ Submitting…\n\n"
-            f"<i>Takes 20–40 seconds…</i>"
+            f"⏳ <b>Registering on Adsterra Beta...</b>\n\n"
+            + card(p) +
+            "\n\n🌐 Browser starting...\n"
+            "📝 Filling form...\n"
+            "🛡️ Solving CAPTCHA...\n"
+            "🚀 Submitting...\n\n"
+            "<i>Takes 30–60 seconds</i>"
         ),
     )
 
-    result = await automation_signup(profile)
-    await _handle_signup_result(query, context, result, profile)
-    return STATE_CONFIRM_LINK if result.get("needs_confirm") else ConversationHandler.END
+    result = await auto_signup(p)
+
+    if result["success"] and result["needs_confirm"]:
+        await safe_edit(
+            q,
+            (
+                f"✅ <b>Account Created!</b>\n\n"
+                + card(p) +
+                f"\n\n📬 <b>Confirmation email sent!</b>\n\n"
+                f"<b>Next steps:</b>\n"
+                f"1️⃣ Check inbox: <code>{p.email}</code>\n"
+                f"2️⃣ Open the confirmation email\n"
+                f"3️⃣ <b>Copy the confirmation link</b>\n"
+                f"4️⃣ Paste it here in chat\n\n"
+                f"<i>Bot will open it and auto-login.</i>"
+            ),
+        )
+        await notify(ctx, f"📝 New Signup\n📧 <code>{p.email}</code>")
+        return STATE_CONFIRM_LINK
+
+    elif result["success"]:
+        await safe_edit(
+            q,
+            f"🎉 <b>Signed Up!</b>\n\n📧 <code>{p.email}</code>",
+            kb=menu(True),
+        )
+        return ConversationHandler.END
+
+    else:
+        SES.email = SES.password = None
+        await safe_edit(
+            q,
+            f"❌ <b>Signup Failed</b>\n\n⚠️ {result['message']}",
+            kb=menu(False),
+        )
+        return ConversationHandler.END
 
 
-async def auto_signup_cancel(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
-    SESSION.current_profile = None
-    await safe_edit(
-        query, "❌ <b>Signup cancelled.</b>",
-        keyboard=main_menu(False),
-    )
+async def signup_cancel(update: Update, ctx) -> int:
+    q = update.callback_query
+    await q.answer()
+    SES.profile = None
+    await safe_edit(q, "❌ Cancelled.", kb=menu(False))
     return ConversationHandler.END
 
 
 # ================================================================
-#         CONVERSATION — MANUAL SIGNUP
+#              CONFIRMATION LINK HANDLER
 # ================================================================
-async def manual_signup_entry(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
-
-    if SESSION.logged_in:
-        await safe_edit(
-            query, "✅ Already logged in. Logout first.",
-            keyboard=main_menu(True),
-        )
-        return ConversationHandler.END
-
-    # Pre-fill with generated data as suggestion
-    suggestion = AdsterraDataGenerator.generate_profile()
-    SESSION.current_profile = suggestion
-
-    await safe_edit(
-        query,
-        (
-            "✍️ <b>Manual Sign Up</b>\n\n"
-            "<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            "👤 <b>Step 1/6</b> — Full Name\n\n"
-            f"💡 Suggestion: <code>{suggestion.full_name}</code>\n\n"
-            "Send your <b>full name</b> or copy the suggestion:\n\n"
-            "<i>/cancel to abort</i>"
-        ),
-    )
-    return STATE_MANUAL_NAME
-
-
-async def manual_receive_name(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    name = update.message.text.strip()
-    if len(name) < 2:
-        await update.message.reply_text(
-            "⚠️ Too short. Send your full name:"
-        )
-        return STATE_MANUAL_NAME
-
-    SESSION.full_name = name
-    p = SESSION.current_profile
-
-    await update.message.reply_text(
-        (
-            "✅ <b>Name saved!</b>\n\n"
-            "<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            "📧 <b>Step 2/6</b> — Email\n\n"
-            f"💡 Suggestion: <code>{p.email if p else 'N/A'}</code>\n\n"
-            "Send your <b>email address</b>:\n\n"
-            "<i>/cancel to abort</i>"
-        ),
-        parse_mode="HTML",
-    )
-    return STATE_MANUAL_EMAIL
-
-
-async def manual_receive_email(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    email = update.message.text.strip()
-    if "@" not in email or "." not in email:
-        await update.message.reply_text("⚠️ Invalid email. Try again:")
-        return STATE_MANUAL_EMAIL
-
-    SESSION.email = email
-    await delete_msg(update)
-    p = SESSION.current_profile
-
-    await update.message.reply_text(
-        (
-            "✅ <b>Email saved!</b>\n\n"
-            "<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            "🔑 <b>Step 3/6</b> — Password\n\n"
-            f"💡 Suggestion: <code>{p.password if p else 'N/A'}</code>\n\n"
-            "Send your <b>password</b> (min 8 chars):\n"
-            "<i>Deleted instantly. /cancel to abort</i>"
-        ),
-        parse_mode="HTML",
-    )
-    return STATE_MANUAL_PASSWORD
-
-
-async def manual_receive_password(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    password = update.message.text.strip()
-    await delete_msg(update)
-
-    if len(password) < 8:
-        await update.message.reply_text(
-            "⚠️ Min 8 characters. Try again:"
-        )
-        return STATE_MANUAL_PASSWORD
-
-    SESSION.password = password
-    p = SESSION.current_profile
-
-    await update.message.reply_text(
-        (
-            "✅ <b>Password saved!</b>\n\n"
-            "<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            "🌐 <b>Step 4/6</b> — Website URL\n\n"
-            f"💡 Suggestion: <code>{p.website_url if p else 'N/A'}</code>\n\n"
-            "Send your <b>website URL</b> or type "
-            "<code>skip</code>:\n\n"
-            "<i>/cancel to abort</i>"
-        ),
-        parse_mode="HTML",
-    )
-    return STATE_MANUAL_WEBSITE
-
-
-async def manual_receive_website(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    text = update.message.text.strip()
-    if text.lower() == "skip":
-        p = SESSION.current_profile
-        SESSION.website = p.website_url if p else ""
-    else:
-        SESSION.website = text if text.startswith("http") else f"https://{text}"
-
-    p = SESSION.current_profile
-    await update.message.reply_text(
-        (
-            "✅ <b>Website saved!</b>\n\n"
-            "<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            "🌍 <b>Step 5/6</b> — Country\n\n"
-            f"💡 Suggestion: <code>{p.country.get('name') if p else 'United States'}</code>\n\n"
-            "Send your <b>country name</b> or type "
-            "<code>skip</code>:\n\n"
-            "<i>/cancel to abort</i>"
-        ),
-        parse_mode="HTML",
-    )
-    return STATE_MANUAL_COUNTRY
-
-
-async def manual_receive_country(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    text = update.message.text.strip()
-    if text.lower() == "skip":
-        p = SESSION.current_profile
-        SESSION.country = p.country.get("name") if p else "United States"
-    else:
-        SESSION.country = text
-
-    p = SESSION.current_profile
-    await update.message.reply_text(
-        (
-            "✅ <b>Country saved!</b>\n\n"
-            "<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            "✈️ <b>Step 6/6</b> — Telegram / Skype\n\n"
-            f"💡 Suggestion: <code>{p.telegram if p else '@username'}</code>\n\n"
-            "Send your <b>Telegram username</b> or Skype,\n"
-            "or type <code>skip</code>:\n\n"
-            "<i>/cancel to abort</i>"
-        ),
-        parse_mode="HTML",
-    )
-    return STATE_MANUAL_TELEGRAM
-
-
-async def manual_receive_telegram(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    text = update.message.text.strip()
-    p    = SESSION.current_profile
-
-    if text.lower() == "skip":
-        SESSION.telegram_user = p.telegram if p else ""
-        SESSION.skype_user    = p.skype    if p else ""
-    else:
-        SESSION.telegram_user = text
-        SESSION.skype_user    = text
-
-    # Build profile from manual input
-    country_data = next(
-        (c for c in COUNTRIES if c["name"].lower() == (SESSION.country or "").lower()),
-        {"name": SESSION.country or "United States", "code": "US", "tld": "com", "tier": 1},
-    )
-
-    profile = PublisherProfile(
-        full_name     = SESSION.full_name     or "",
-        first_name    = (SESSION.full_name or "").split()[0] if SESSION.full_name else "",
-        last_name     = (SESSION.full_name or "").split()[-1] if SESSION.full_name else "",
-        email         = SESSION.email         or "",
-        password      = SESSION.password      or "",
-        country       = country_data,
-        website_url   = SESSION.website       or "",
-        website_niche = "general",
-        telegram      = SESSION.telegram_user or "",
-        skype         = SESSION.skype_user    or "",
-        generated_at  = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    )
-    SESSION.current_profile = profile
-
-    msg = await update.message.reply_text(
-        (
-            "⏳ <b>Registering on Adsterra…</b>\n\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            f"👤 {profile.full_name}\n"
-            f"📧 {profile.email}\n"
-            f"🌍 {country_data['name']}\n"
-            f"🌐 {profile.website_url}\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n"
-            f"🌐 Launching browser…\n"
-            f"📝 Filling form…\n"
-            f"⏳ Submitting…\n\n"
-            f"<i>Takes 20–40 seconds…</i>"
-        ),
-        parse_mode="HTML",
-    )
-
-    result = await automation_signup(profile)
-    await _handle_signup_result_msg(msg, context, result, profile)
-
-    return STATE_CONFIRM_LINK if result.get("needs_confirm") else ConversationHandler.END
-
-
-# ================================================================
-#         SHARED SIGNUP RESULT HANDLER
-# ================================================================
-async def _handle_signup_result(query, context, result, profile):
-    if result["success"] and result["needs_confirm"]:
-        text = (
-            f"✅ <b>Account Created!</b>\n\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            f"👤 {profile.full_name}\n"
-            f"📧 <code>{profile.email}</code>\n"
-            f"🔑 <code>{profile.password}</code>\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n"
-            f"📬 <b>Confirmation email sent!</b>\n\n"
-            f"Steps:\n"
-            f"1️⃣ Check inbox for <code>{profile.email}</code>\n"
-            f"2️⃣ Open the confirmation email\n"
-            f"3️⃣ <b>Copy the confirmation link</b>\n"
-            f"4️⃣ Paste it here in this chat\n\n"
-            f"<i>Bot will open it automatically and re-login!</i>"
-        )
-        await safe_edit(query, text)
-        await notify_admin(
-            context,
-            f"📝 <b>New Signup</b>\n"
-            f"👤 {profile.full_name}\n"
-            f"📧 <code>{profile.email}</code>\n"
-            f"⏳ Awaiting confirmation",
-        )
-
-    elif result["success"] and not result["needs_confirm"]:
-        text = (
-            f"🎉 <b>Registered & Logged In!</b>\n\n"
-            f"👤 <code>{profile.email}</code>\n\n"
-            f"Use 🔗 Create Smartlink to begin!"
-        )
-        await safe_edit(query, text, keyboard=main_menu(True))
-
-    else:
-        SESSION.email = SESSION.password = None
-        text = (
-            f"❌ <b>Signup Failed</b>\n\n"
-            f"⚠️ {result['message']}\n\n"
-            f"Try again with a different profile."
-        )
-        await safe_edit(query, text, keyboard=main_menu(False))
-
-
-async def _handle_signup_result_msg(msg, context, result, profile):
-    if result["success"] and result["needs_confirm"]:
-        text = (
-            f"✅ <b>Account Created!</b>\n\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            f"📧 <code>{profile.email}</code>\n"
-            f"🔑 <code>{profile.password}</code>\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n"
-            f"📬 <b>Confirmation email sent!</b>\n\n"
-            f"1️⃣ Check inbox for <code>{profile.email}</code>\n"
-            f"2️⃣ Copy the confirmation link\n"
-            f"3️⃣ Paste it here\n\n"
-            f"<i>Bot handles the rest automatically!</i>"
-        )
-        await msg.edit_text(text, parse_mode="HTML")
-        await notify_admin(
-            context,
-            f"📝 <b>New Signup</b>\n👤 {profile.full_name}\n"
-            f"📧 <code>{profile.email}</code>",
-        )
-
-    elif result["success"]:
-        text = (
-            f"🎉 <b>Registered & Logged In!</b>\n\n"
-            f"👤 <code>{profile.email}</code>"
-        )
-        await msg.edit_text(
-            text, parse_mode="HTML",
-            reply_markup=main_menu(True),
-        )
-    else:
-        SESSION.email = SESSION.password = None
-        await msg.edit_text(
-            f"❌ <b>Signup Failed</b>\n\n⚠️ {result['message']}",
-            parse_mode="HTML",
-            reply_markup=main_menu(False),
-        )
-
-
-# ================================================================
-#          CONVERSATION — EMAIL CONFIRMATION LINK
-# ================================================================
-async def confirm_receive_link(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
+async def confirm_link(update: Update, ctx) -> int:
     raw  = update.message.text.strip()
     urls = re.findall(r'https?://[^\s]+', raw)
     url  = urls[0] if urls else raw
 
     if not url.startswith("http"):
         await update.message.reply_text(
-            "⚠️ <b>Not a valid URL.</b>\n"
-            "Paste the full confirmation link (starts with https://):",
-            parse_mode="HTML",
+            "⚠️ Send a valid URL starting with https://"
         )
         return STATE_CONFIRM_LINK
 
     msg = await update.message.reply_text(
-        (
-            "⏳ <b>Opening confirmation link…</b>\n\n"
-            f"🔗 <code>{url[:55]}{'…' if len(url)>55 else ''}</code>\n\n"
-            "🌐 Loading in browser…\n"
-            "✅ Verifying account…\n\n"
-            "<i>Please wait…</i>"
-        ),
+        f"⏳ Opening confirmation link...\n<code>{url[:60]}</code>",
         parse_mode="HTML",
     )
 
-    result = await automation_confirm(url)
+    result = await auto_confirm(url)
 
     if result["success"]:
         await msg.edit_text(
-            (
-                "✅ <b>Confirmed! Auto-logging in…</b>\n\n"
-                "🔑 Using saved credentials…\n"
-                "<i>15–20 seconds…</i>"
-            ),
+            "✅ Confirmed! Auto-logging in...",
             parse_mode="HTML",
         )
-
         await human_delay(2.0, 4.0)
-        await SESSION._destroy_browser()
-        login_result = await automation_login()
+        await SES._close_browser()
 
-        if login_result["success"]:
-            p = SESSION.current_profile
-            text = (
-                f"🎉 <b>Account Confirmed & Logged In!</b>\n\n"
-                f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-                f"👤 {p.full_name if p else SESSION.full_name}\n"
-                f"📧 <code>{SESSION.email}</code>\n"
-                f"🕐 {datetime.now().strftime('%H:%M:%S')}\n"
-                f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n"
-                f"✅ Account fully active!\n"
-                f"Use 🔗 <b>Create Smartlink</b> to earn! 🎉"
-            )
-            await notify_admin(
-                context,
-                f"🎉 <b>Confirmed + Logged In</b>\n"
-                f"📧 <code>{SESSION.email}</code>",
-            )
+        login = await auto_login()
+
+        if login["success"]:
             await msg.edit_text(
-                text, parse_mode="HTML",
-                reply_markup=main_menu(True),
+                f"🎉 <b>Account Confirmed & Logged In!</b>\n\n"
+                f"📧 <code>{SES.email}</code>",
+                parse_mode="HTML",
+                reply_markup=menu(True),
             )
+            await notify(ctx, f"🎉 Confirmed + Logged In\n📧 <code>{SES.email}</code>")
             return ConversationHandler.END
-
         else:
             await msg.edit_text(
-                "✅ <b>Confirmed!</b> Auto-login failed.\n\n"
-                "Please send your <b>password</b> again:\n"
-                "<i>Deleted instantly.</i>",
+                "✅ Confirmed but auto-login failed.\n\n"
+                "Send your <b>password</b> again:",
                 parse_mode="HTML",
             )
             return STATE_RELOGIN_PASSWORD
-
     else:
         await msg.edit_text(
-            f"❌ <b>Confirmation Failed</b>\n\n"
-            f"⚠️ {result['message']}\n\n"
-            f"Send the correct link or use /start.",
-            parse_mode="HTML",
-            reply_markup=main_menu(False),
+            f"❌ {result['message']}\n\nSend correct link or /cancel",
         )
         return STATE_CONFIRM_LINK
 
 
-# ================================================================
-#          CONVERSATION — RE-LOGIN AFTER CONFIRM
-# ================================================================
-async def relogin_receive_password(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    SESSION.password = update.message.text.strip()
-    await delete_msg(update)
+async def relogin_pw(update: Update, ctx) -> int:
+    SES.password = update.message.text.strip()
+    await del_msg(update)
 
-    msg = await update.message.reply_text(
-        "⏳ <b>Logging in…</b>", parse_mode="HTML"
-    )
-
-    await SESSION._destroy_browser()
-    result = await automation_login()
+    msg = await update.message.reply_text("⏳ Logging in...")
+    await SES._close_browser()
+    result = await auto_login()
 
     if result["success"]:
-        text = (
-            f"✅ <b>Logged In!</b>\n\n"
-            f"📧 <code>{SESSION.email}</code>\n"
-            f"Use 🔗 Create Smartlink!"
-        )
         await msg.edit_text(
-            text, parse_mode="HTML",
-            reply_markup=main_menu(True),
+            f"✅ Logged in!\n📧 <code>{SES.email}</code>",
+            parse_mode="HTML", reply_markup=menu(True),
         )
     else:
-        SESSION.password = None
         await msg.edit_text(
-            f"❌ <b>Failed</b>\n\n⚠️ {result['message']}\n\nUse /start.",
-            parse_mode="HTML",
-            reply_markup=main_menu(False),
+            f"❌ {result['message']}",
+            reply_markup=menu(False),
         )
     return ConversationHandler.END
 
 
 # ================================================================
-#         CONVERSATION — LOGIN FLOW
+#              LOGIN CONVERSATION
 # ================================================================
-async def login_entry(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
+async def login_entry(update: Update, ctx) -> int:
+    q = update.callback_query
+    await q.answer()
 
-    if SESSION.logged_in:
-        await safe_edit(
-            query,
-            f"✅ Already logged in as <code>{SESSION.email}</code>.",
-            keyboard=main_menu(True),
-        )
+    if SES.logged_in:
+        await safe_edit(q, "✅ Already logged in.", kb=menu(True))
         return ConversationHandler.END
 
-    await safe_edit(
-        query,
-        (
-            "🔐 <b>Login to Adsterra</b>\n\n"
-            "<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            "📧 <b>Step 1/2</b> — Email\n\n"
-            "Send your <b>email address</b>:\n\n"
-            "<i>/cancel to abort</i>"
-        ),
-    )
+    await safe_edit(q, "📧 Send your Adsterra email:")
     return STATE_LOGIN_EMAIL
 
 
-async def login_receive_email(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
+async def login_email(update: Update, ctx) -> int:
     email = update.message.text.strip()
-    if "@" not in email or "." not in email:
-        await update.message.reply_text("⚠️ Invalid email:")
+    if "@" not in email:
+        await update.message.reply_text("⚠️ Invalid email")
         return STATE_LOGIN_EMAIL
 
-    SESSION.email = email
-    await delete_msg(update)
-
+    SES.email = email
+    await del_msg(update)
     await update.message.reply_text(
-        (
-            "✅ <b>Email saved!</b>\n\n"
-            "<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            "🔑 <b>Step 2/2</b> — Password\n\n"
-            "Send your <b>password</b>:\n"
-            "<i>Deleted instantly. /cancel to abort</i>"
-        ),
-        parse_mode="HTML",
+        "🔑 Now send your password (deleted instantly):"
     )
     return STATE_LOGIN_PASSWORD
 
 
-async def login_receive_password(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    SESSION.password = update.message.text.strip()
-    await delete_msg(update)
+async def login_pw(update: Update, ctx) -> int:
+    SES.password = update.message.text.strip()
+    await del_msg(update)
 
-    msg = await update.message.reply_text(
-        "⏳ <b>Logging in…</b>\n\n<i>15–30 seconds…</i>",
-        parse_mode="HTML",
-    )
-
-    result = await automation_login()
+    msg = await update.message.reply_text("⏳ Logging in...")
+    result = await auto_login()
 
     if result["success"]:
-        text = (
-            f"✅ <b>Login Successful!</b>\n\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            f"📧 <code>{SESSION.email}</code>\n"
-            f"🕐 {datetime.now().strftime('%H:%M:%S')}\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>"
+        await msg.edit_text(
+            f"✅ Logged in!\n📧 <code>{SES.email}</code>",
+            parse_mode="HTML", reply_markup=menu(True),
         )
-        await notify_admin(
-            context,
-            f"🟢 <b>Login</b>\n📧 <code>{SESSION.email}</code>",
-        )
+        await notify(ctx, f"🟢 Login\n📧 <code>{SES.email}</code>")
     else:
-        SESSION.email = SESSION.password = None
-        text = (
-            f"❌ <b>Login Failed</b>\n\n"
-            f"⚠️ {result['message']}"
+        SES.email = SES.password = None
+        await msg.edit_text(
+            f"❌ {result['message']}",
+            reply_markup=menu(False),
         )
-
-    await msg.edit_text(
-        text, parse_mode="HTML",
-        reply_markup=main_menu(SESSION.logged_in),
-    )
     return ConversationHandler.END
 
 
 # ================================================================
-#         CONVERSATION — LOGOUT FLOW
+#              LOGOUT CONVERSATION
 # ================================================================
-async def logout_entry(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
+async def logout_entry(update: Update, ctx) -> int:
+    q = update.callback_query
+    await q.answer()
 
-    if not SESSION.email and not SESSION.logged_in:
-        await safe_edit(
-            query, "⚠️ No active session.",
-            keyboard=main_menu(False),
-        )
+    if not SES.email:
+        await safe_edit(q, "⚠️ No active session.", kb=menu(False))
         return ConversationHandler.END
 
-    account = f"<code>{SESSION.email}</code>" if SESSION.email else "Unknown"
     await safe_edit(
-        query,
-        (
-            f"🚪 <b>Confirm Logout</b>\n\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            f"👤 {account}\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n\n"
-            f"This will clear ALL session data.\n\n"
-            f"<b>Are you sure?</b>"
-        ),
-        keyboard=CONFIRM_LOGOUT_KB,
+        q,
+        f"🚪 Logout <code>{SES.email}</code>?",
+        kb=LOGOUT_KB,
     )
     return STATE_LOGOUT_CONFIRM
 
 
-async def logout_confirmed(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query     = update.callback_query
-    await query.answer()
-    old_email = SESSION.email or "Unknown"
-
-    await safe_edit(query, "⏳ <b>Logging out…</b>")
-    await SESSION.full_logout()
-
+async def logout_yes(update: Update, ctx) -> int:
+    q = update.callback_query
+    await q.answer()
+    old = SES.email
+    await SES.reset()
     await safe_edit(
-        query,
-        (
-            f"✅ <b>Logged Out!</b>\n\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            f"📧 <code>{old_email}</code>\n"
-            f"🕐 {datetime.now().strftime('%H:%M:%S')}\n"
-            f"🌐 Browser : Closed\n"
-            f"🔐 Session : Cleared\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>"
-        ),
-        keyboard=main_menu(False),
-    )
-    await notify_admin(
-        context,
-        f"🔴 <b>Logout</b>\n📧 <code>{old_email}</code>",
+        q, f"✅ Logged out: <code>{old}</code>",
+        kb=menu(False),
     )
     return ConversationHandler.END
 
 
-async def logout_cancelled(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
-    await safe_edit(
-        query,
-        "✅ <b>Logout cancelled.</b>",
-        keyboard=main_menu(SESSION.logged_in),
-    )
+async def logout_no(update: Update, ctx) -> int:
+    q = update.callback_query
+    await q.answer()
+    await safe_edit(q, "✅ Cancelled.", kb=menu(SES.logged_in))
     return ConversationHandler.END
 
 
 # ================================================================
-#         INLINE — CREATE SMARTLINK + STATUS
+#              STATUS
 # ================================================================
-async def inline_create_smartlink(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
-
-    if not SESSION.logged_in:
-        await safe_edit(
-            query,
-            "🔴 <b>Not logged in!</b> Login first.",
-            keyboard=main_menu(False),
-        )
-        return ConversationHandler.END
-
-    await safe_edit(
-        query,
-        "⏳ <b>Creating Smartlink…</b>\n\n<i>20–40 seconds…</i>",
-    )
-
-    result = await automation_create_smartlink()
-
-    if result["success"]:
-        url_line = (
-            f"\n🔗 <code>{result['url']}</code>"
-            if result.get("url")
-            else "\n⚠️ Check dashboard for URL."
-        )
-        text = (
-            f"🎉 <b>Smartlink Created!</b>\n\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-            f"📛 <code>{result.get('name', 'N/A')}</code>"
-            f"{url_line}\n"
-            f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>"
-        )
-        await notify_admin(
-            context,
-            f"🔗 <b>Smartlink</b>\n📧 <code>{SESSION.email}</code>\n"
-            f"🔗 {result.get('url', 'N/A')}",
-        )
-    else:
-        text = f"❌ <b>Failed</b>\n\n⚠️ {result['message']}"
-
-    await safe_edit(query, text, keyboard=main_menu(SESSION.logged_in))
-    return ConversationHandler.END
-
-
-async def inline_status(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    query = update.callback_query
-    await query.answer()
-
-    status_icon = "🟢 Active"  if SESSION.logged_in    else "🔴 Inactive"
-    browser_st  = "🟢 Running" if SESSION.browser_alive else "⚫ Closed"
-    confirm_st  = "⏳ Pending" if SESSION.awaiting_confirm else "✅ OK"
-    account     = f"<code>{SESSION.email}</code>" if SESSION.email else "N/A"
-
+async def show_status(update: Update, ctx) -> int:
+    q = update.callback_query
+    await q.answer()
     text = (
-        f"<b>📊 Session Status</b>\n"
-        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>\n"
-        f"🔐 Login     : {status_icon}\n"
-        f"👤 Account   : {account}\n"
-        f"🌐 Browser   : {browser_st}\n"
-        f"📧 Confirmed : {confirm_st}\n"
-        f"🕐 Time      : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"<b>━━━━━━━━━━━━━━━━━━━━━━━━</b>"
+        f"<b>📊 Status</b>\n"
+        f"🔐 Login   : {'🟢' if SES.logged_in else '🔴'}\n"
+        f"👤 Account : <code>{SES.email or 'N/A'}</code>\n"
+        f"🌐 Browser : {'🟢' if SES.browser_alive else '⚫'}\n"
+        f"📧 Confirm : {'⏳' if SES.awaiting_confirm else '✅'}"
     )
-    await safe_edit(query, text, keyboard=main_menu(SESSION.logged_in))
+    await safe_edit(q, text, kb=menu(SES.logged_in))
     return ConversationHandler.END
-
-
-# ================================================================
-#                     ERROR HANDLER
-# ================================================================
-async def error_handler(
-    update: object, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    logger.error("Error: %s", context.error, exc_info=context.error)
 
 
 # ================================================================
 #                          MAIN
 # ================================================================
-def main() -> None:
-    logger.info("=" * 60)
-    logger.info("  ADSTERRA BOT v3.0 — God Level Edition")
-    logger.info("  Auto Data Generator + Full Signup Automation")
-    logger.info("=" * 60)
+def main():
+    logger.info("🚀 Starting Adsterra Bot (REAL Edition)")
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # ── Login Conversation ────────────────────────────────────
+    # Login conv
     login_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(login_entry, pattern="^login$")],
         states={
-            STATE_LOGIN_EMAIL:    [MessageHandler(filters.TEXT & ~filters.COMMAND, login_receive_email)],
-            STATE_LOGIN_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, login_receive_password)],
+            STATE_LOGIN_EMAIL:    [MessageHandler(filters.TEXT & ~filters.COMMAND, login_email)],
+            STATE_LOGIN_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, login_pw)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
-        per_message=False, allow_reentry=True,
+        allow_reentry=True,
     )
 
-    # ── Auto Signup Conversation ──────────────────────────────
-    auto_signup_conv = ConversationHandler(
+    # Signup conv
+    signup_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(auto_signup_entry, pattern="^auto_signup$")],
         states={
             STATE_SIGNUP_CONFIRM: [
-                CallbackQueryHandler(auto_signup_confirmed, pattern="^confirm_signup$"),
-                CallbackQueryHandler(auto_signup_entry,     pattern="^auto_signup$"),
-                CallbackQueryHandler(auto_signup_cancel,    pattern="^cancel_signup$"),
+                CallbackQueryHandler(signup_confirmed, pattern="^confirm_signup$"),
+                CallbackQueryHandler(auto_signup_entry,pattern="^auto_signup$"),
+                CallbackQueryHandler(signup_cancel,    pattern="^cancel_signup$"),
             ],
-            STATE_CONFIRM_LINK:    [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_receive_link)],
-            STATE_RELOGIN_PASSWORD:[MessageHandler(filters.TEXT & ~filters.COMMAND, relogin_receive_password)],
+            STATE_CONFIRM_LINK:    [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_link)],
+            STATE_RELOGIN_PASSWORD:[MessageHandler(filters.TEXT & ~filters.COMMAND, relogin_pw)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
-        per_message=False, allow_reentry=True,
+        allow_reentry=True,
     )
 
-    # ── Manual Signup Conversation ────────────────────────────
-    manual_signup_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(manual_signup_entry, pattern="^manual_signup$")],
-        states={
-            STATE_MANUAL_NAME:     [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_receive_name)],
-            STATE_MANUAL_EMAIL:    [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_receive_email)],
-            STATE_MANUAL_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_receive_password)],
-            STATE_MANUAL_WEBSITE:  [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_receive_website)],
-            STATE_MANUAL_COUNTRY:  [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_receive_country)],
-            STATE_MANUAL_TELEGRAM: [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_receive_telegram)],
-            STATE_CONFIRM_LINK:    [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_receive_link)],
-            STATE_RELOGIN_PASSWORD:[MessageHandler(filters.TEXT & ~filters.COMMAND, relogin_receive_password)],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel)],
-        per_message=False, allow_reentry=True,
-    )
-
-    # ── Logout Conversation ───────────────────────────────────
+    # Logout conv
     logout_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(logout_entry, pattern="^logout$")],
         states={
             STATE_LOGOUT_CONFIRM: [
-                CallbackQueryHandler(logout_confirmed, pattern="^logout_confirm$"),
-                CallbackQueryHandler(logout_cancelled, pattern="^logout_cancel$"),
+                CallbackQueryHandler(logout_yes, pattern="^logout_yes$"),
+                CallbackQueryHandler(logout_no,  pattern="^logout_no$"),
             ],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
-        per_message=False, allow_reentry=True,
+        allow_reentry=True,
     )
 
-    # ── Register All ──────────────────────────────────────────
     app.add_handler(CommandHandler("start",  cmd_start))
-    app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(login_conv)
-    app.add_handler(auto_signup_conv)
-    app.add_handler(manual_signup_conv)
+    app.add_handler(signup_conv)
     app.add_handler(logout_conv)
-    app.add_handler(CallbackQueryHandler(inline_generate_data,    pattern="^generate_data$"))
-    app.add_handler(CallbackQueryHandler(inline_create_smartlink, pattern="^create_smartlink$"))
-    app.add_handler(CallbackQueryHandler(inline_status,           pattern="^status$"))
-    app.add_handler(CallbackQueryHandler(inline_main_menu,        pattern="^main_menu$"))
-    app.add_error_handler(error_handler)
+    app.add_handler(CallbackQueryHandler(show_status, pattern="^status$"))
 
-    logger.info("✅ Bot is live! Send /start in Telegram.")
-    logger.info("=" * 60)
+    logger.info("✅ Bot ready! Send /start")
     app.run_polling(drop_pending_updates=True)
 
 
