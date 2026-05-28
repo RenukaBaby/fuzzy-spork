@@ -135,7 +135,7 @@ jobs:
           echo "✅ All checks passed"
 
       - name: 🤖 Run Bot
-        run: python adsterra_bot.py
+        run: python Adsterra.py
 
       - name: 📋 Upload Logs on Failure
         if: failure()
