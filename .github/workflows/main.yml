@@ -18,11 +18,14 @@ jobs:
     name: 🔍 Syntax Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: 🐍 Python 3.11
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          # ✅ NO cache here — avoids requirements.txt check
 
       - name: ✅ Syntax Check
         run: |
@@ -44,30 +47,42 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
+          # ✅ NO cache — we install directly from requirements.txt below
 
       - name: 🛠️ System Dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            libnss3 libatk-bridge2.0-0 libdrm2 \
-            libxkbcommon0 libgbm1 libasound2 \
-            libxrandr2 libgtk-3-0 wget ca-certificates
+            libnss3 \
+            libatk-bridge2.0-0 \
+            libdrm2 \
+            libxkbcommon0 \
+            libgbm1 \
+            libasound2 \
+            libxrandr2 \
+            libgtk-3-0 \
+            wget \
+            ca-certificates
 
-      - name: 📦 Python Packages
+      - name: 📦 Install Python Packages
         run: |
           pip install --upgrade pip
-          pip install \
-            playwright==1.47.0 \
-            python-telegram-bot==21.6
+          pip install -r requirements.txt
 
-      - name: 🌐 Playwright Chromium
+      - name: 🌐 Install Playwright Chromium
         run: |
           playwright install chromium
           playwright install-deps chromium
 
+      - name: ✅ Verify Installation
+        run: |
+          python -c "import playwright; print('✅ Playwright OK')"
+          python -c "import telegram; print('✅ python-telegram-bot OK')"
+          python -m py_compile Adsterra.py
+          echo "✅ All checks passed"
+
       - name: 🤖 Run Bot
-        run: python Adsterra.py
+        run: python Adsterra_bot.py
 
       - name: 📋 Upload Logs on Failure
         if: failure()
