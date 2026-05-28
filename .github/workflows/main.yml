@@ -25,7 +25,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          # ✅ NO cache here — avoids requirements.txt check
 
       - name: ✅ Syntax Check
         run: |
@@ -47,22 +46,74 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          # ✅ NO cache — we install directly from requirements.txt below
 
       - name: 🛠️ System Dependencies
         run: |
           sudo apt-get update -qq
+
+          # ── Detect Ubuntu version ──────────────────────────
+          UBUNTU_VERSION=$(lsb_release -rs)
+          echo "Ubuntu version: $UBUNTU_VERSION"
+
+          # ── Base packages (work on all Ubuntu versions) ────
           sudo apt-get install -y --no-install-recommends \
             libnss3 \
             libatk-bridge2.0-0 \
             libdrm2 \
             libxkbcommon0 \
             libgbm1 \
-            libasound2 \
             libxrandr2 \
             libgtk-3-0 \
+            libx11-xcb1 \
+            libxcb-dri3-0 \
+            libxcomposite1 \
+            libxcursor1 \
+            libxdamage1 \
+            libxi6 \
+            libxtst6 \
+            libpangocairo-1.0-0 \
+            libpango-1.0-0 \
+            libcairo2 \
+            libcups2 \
+            libdbus-1-3 \
+            libexpat1 \
+            libfontconfig1 \
+            libgcc-s1 \
+            libglib2.0-0 \
+            libnspr4 \
+            libstdc++6 \
+            libx11-6 \
+            libxcb1 \
+            libxext6 \
+            libxfixes3 \
             wget \
-            ca-certificates
+            ca-certificates \
+            fonts-liberation \
+            xdg-utils
+
+          # ── libasound2 — renamed in Ubuntu 24.04 ──────────
+          if dpkg -l libasound2t64 2>/dev/null | grep -q "^ii"; then
+            echo "✅ libasound2t64 already installed"
+          elif apt-cache show libasound2t64 2>/dev/null | grep -q "Package:"; then
+            sudo apt-get install -y --no-install-recommends libasound2t64
+            echo "✅ Installed libasound2t64 (Ubuntu 24.04+)"
+          elif apt-cache show libasound2 2>/dev/null | grep -q "Package:"; then
+            sudo apt-get install -y --no-install-recommends libasound2
+            echo "✅ Installed libasound2 (Ubuntu <24.04)"
+          else
+            echo "⚠️ Neither libasound2 nor libasound2t64 found — skipping"
+          fi
+
+          # ── libatk1.0-0 — also renamed in some versions ───
+          if apt-cache show libatk1.0-0t64 2>/dev/null | grep -q "Package:"; then
+            sudo apt-get install -y --no-install-recommends libatk1.0-0t64
+            echo "✅ Installed libatk1.0-0t64"
+          elif apt-cache show libatk1.0-0 2>/dev/null | grep -q "Package:"; then
+            sudo apt-get install -y --no-install-recommends libatk1.0-0
+            echo "✅ Installed libatk1.0-0"
+          fi
+
+          echo "✅ All system dependencies installed"
 
       - name: 📦 Install Python Packages
         run: |
@@ -71,8 +122,10 @@ jobs:
 
       - name: 🌐 Install Playwright Chromium
         run: |
-          playwright install chromium
-          playwright install-deps chromium
+          # Let Playwright install its own bundled Chromium
+          # which includes all needed libs internally
+          playwright install chromium --with-deps
+          echo "✅ Playwright Chromium installed"
 
       - name: ✅ Verify Installation
         run: |
@@ -82,7 +135,7 @@ jobs:
           echo "✅ All checks passed"
 
       - name: 🤖 Run Bot
-        run: python Adsterra_bot.py
+        run: python adsterra_bot.py
 
       - name: 📋 Upload Logs on Failure
         if: failure()
