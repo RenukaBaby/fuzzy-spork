@@ -10,8 +10,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 
 # ===================== CONFIG =====================
-TELEGRAM_BOT_TOKEN = "8766573450:AAGDkv16RZOKPb8jqEZTGVoO5SsjmYnK6zI"  # ← Paste your token directly here
-TELEGRAM_CHAT_ID = "3797306274"       # ← Paste your chat ID directly here (optional, for extra logs)
+TELEGRAM_BOT_TOKEN = "8766573450:AAGDkv16RZOKPb8jqEZTGVoO5SsjmYnK6zI"
+TELEGRAM_CHAT_ID = "3797306274"
 
 EMAIL = None
 PASSWORD = None
@@ -40,8 +40,8 @@ async def human_type(page, selector, text):
 async def send_message(context, message):
     try:
         await context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-    except:
-        pass  # fallback if chat_id not set
+    except Exception:
+        pass
 
 # ===================== TELEGRAM COMMANDS =====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -58,6 +58,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # ✅ FIX: Declare ALL globals at the TOP of the function,
+    #         before any reference to these variables
+    global EMAIL, PASSWORD, CURRENT_PAGE, BROWSER, CONTEXT
+
     query = update.callback_query
     await query.answer()
 
@@ -73,15 +77,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     elif query.data == "logout":
-        global EMAIL, PASSWORD, CURRENT_PAGE, BROWSER, CONTEXT
-        EMAIL = PASSWORD = None
+        EMAIL = None
+        PASSWORD = None
         if CURRENT_PAGE:
             await CURRENT_PAGE.close()
         if CONTEXT:
             await CONTEXT.close()
         if BROWSER:
             await BROWSER.close()
-        CURRENT_PAGE = BROWSER = CONTEXT = None
+        CURRENT_PAGE = None
+        BROWSER = None
+        CONTEXT = None
         await query.edit_message_text("✅ Logged out successfully. All sessions cleared.")
         return ConversationHandler.END
 
@@ -170,10 +176,14 @@ async def create_smartlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
             url_input = await CURRENT_PAGE.wait_for_selector("input[value^='https://']", timeout=15000)
             if url_input:
                 smartlink_url = await url_input.input_value()
-                await update.message.reply_text(f"🎉 Smartlink Created!\n\nName: {smartlink_name}\n🔗 {smartlink_url}")
+                await update.message.reply_text(
+                    f"🎉 Smartlink Created!\n\nName: {smartlink_name}\n🔗 {smartlink_url}"
+                )
                 await send_message(context, f"New Smartlink: {smartlink_url}")
-        except:
-            await update.message.reply_text("Smartlink created but URL could not be extracted automatically. Check your dashboard.")
+        except Exception:
+            await update.message.reply_text(
+                "Smartlink created but URL could not be extracted automatically. Check your dashboard."
+            )
     except Exception as e:
         await update.message.reply_text(f"❌ Error creating smartlink: {str(e)}")
 
@@ -199,4 +209,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-                        
